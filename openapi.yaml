@@ -1,0 +1,1025 @@
+openapi: 3.1.0
+info:
+  title: RocketManifest API
+  description: |
+    Living feature documentation server for AI-assisted development.
+
+    RocketManifest tracks **features** (system capabilities) rather than work items.
+    Features are living descriptions that evolve with the codebase, organized in a
+    hierarchical tree structure under projects.
+
+    ## Core Concepts
+
+    - **Project**: Groups features, directories, and git remotes for a codebase
+    - **Feature**: A capability of the system, organized hierarchically
+    - **Session**: A work session on a leaf feature (only one active per feature)
+    - **Task**: Work unit within a session, assigned to an AI agent (can have sub-tasks)
+    - **History**: Append-only log of implementation sessions
+  version: 0.1.0
+  license:
+    name: MIT
+  contact:
+    name: RocketManifest
+
+servers:
+  - url: http://localhost:3000/api/v1
+    description: Local development server
+
+tags:
+  - name: Projects
+    description: Project management - groups features and directories
+  - name: Directories
+    description: Project directory management
+  - name: Features
+    description: Feature tree management
+  - name: Sessions
+    description: Work session management (on leaf features only)
+  - name: Tasks
+    description: Task management within sessions
+  - name: Notes
+    description: Implementation notes
+  - name: Health
+    description: Server health checks
+
+paths:
+  /health:
+    get:
+      tags: [Health]
+      summary: Health check
+      operationId: health
+      responses:
+        '200':
+          description: Server is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+
+  # ============================================================
+  # Projects
+  # ============================================================
+  /projects:
+    get:
+      tags: [Projects]
+      summary: List all projects
+      operationId: listProjects
+      responses:
+        '200':
+          description: List of projects ordered by name
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Project'
+    post:
+      tags: [Projects]
+      summary: Create a new project
+      operationId: createProject
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateProjectInput'
+      responses:
+        '201':
+          description: Project created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Project'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /projects/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+    get:
+      tags: [Projects]
+      summary: Get a project with its directories
+      operationId: getProject
+      responses:
+        '200':
+          description: Project with directories
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectWithDirectories'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags: [Projects]
+      summary: Update a project
+      operationId: updateProject
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateProjectInput'
+      responses:
+        '200':
+          description: Project updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Project'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Projects]
+      summary: Delete a project
+      description: Deletes the project and cascades to all features, sessions, and tasks
+      operationId: deleteProject
+      responses:
+        '204':
+          description: Project deleted
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /projects/{id}/directories:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+    get:
+      tags: [Directories]
+      summary: List project directories
+      operationId: listProjectDirectories
+      responses:
+        '200':
+          description: List of directories (primary first, then by path)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ProjectDirectory'
+    post:
+      tags: [Directories]
+      summary: Add a directory to a project
+      operationId: addProjectDirectory
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddDirectoryInput'
+      responses:
+        '201':
+          description: Directory added
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectDirectory'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /projects/{id}/features:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+    get:
+      tags: [Features]
+      summary: List all features in a project
+      operationId: listProjectFeatures
+      responses:
+        '200':
+          description: All features in the project
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Feature'
+    post:
+      tags: [Features]
+      summary: Create a feature in a project
+      operationId: createFeature
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateFeatureInput'
+      responses:
+        '201':
+          description: Feature created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Feature'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /projects/{id}/features/roots:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+    get:
+      tags: [Features]
+      summary: List root features (no parent) in a project
+      operationId: listRootFeatures
+      responses:
+        '200':
+          description: Root features ordered by title
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Feature'
+
+  # ============================================================
+  # Directories (standalone)
+  # ============================================================
+  /directories/{id}:
+    parameters:
+      - $ref: '#/components/parameters/DirectoryId'
+    delete:
+      tags: [Directories]
+      summary: Remove a directory
+      operationId: removeProjectDirectory
+      responses:
+        '204':
+          description: Directory removed
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ============================================================
+  # Features (standalone)
+  # ============================================================
+  /features:
+    get:
+      tags: [Features]
+      summary: List all features across all projects
+      operationId: listFeatures
+      responses:
+        '200':
+          description: All features
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Feature'
+
+  /features/{id}:
+    parameters:
+      - $ref: '#/components/parameters/FeatureId'
+    get:
+      tags: [Features]
+      summary: Get a feature by ID
+      operationId: getFeature
+      responses:
+        '200':
+          description: The feature
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Feature'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags: [Features]
+      summary: Update a feature
+      operationId: updateFeature
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateFeatureInput'
+      responses:
+        '200':
+          description: Feature updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Feature'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Features]
+      summary: Delete a feature
+      description: Deletes the feature and cascades to all children
+      operationId: deleteFeature
+      responses:
+        '204':
+          description: Feature deleted
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /features/{id}/children:
+    parameters:
+      - $ref: '#/components/parameters/FeatureId'
+    get:
+      tags: [Features]
+      summary: List direct children of a feature
+      operationId: listChildren
+      responses:
+        '200':
+          description: Direct children ordered by title
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Feature'
+
+  /features/{id}/history:
+    parameters:
+      - $ref: '#/components/parameters/FeatureId'
+    get:
+      tags: [Features]
+      summary: Get feature history
+      description: Returns the implementation history log (like git log)
+      operationId: getFeatureHistory
+      responses:
+        '200':
+          description: History entries in reverse chronological order
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/FeatureHistory'
+
+  /features/{id}/notes:
+    parameters:
+      - $ref: '#/components/parameters/FeatureId'
+    get:
+      tags: [Notes]
+      summary: List implementation notes for a feature
+      operationId: listFeatureNotes
+      responses:
+        '200':
+          description: Implementation notes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ImplementationNote'
+
+  # ============================================================
+  # Sessions
+  # ============================================================
+  /sessions:
+    post:
+      tags: [Sessions]
+      summary: Create a new session
+      description: |
+        Creates a work session on a leaf feature. Only leaf features (those without children)
+        can have sessions. Only one active session per feature is allowed.
+      operationId: createSession
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateSessionInput'
+      responses:
+        '201':
+          description: Session created with tasks
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionResponse'
+        '500':
+          description: Feature is not a leaf or already has active session
+          content:
+            application/json:
+              schema:
+                type: string
+
+  /sessions/{id}:
+    parameters:
+      - $ref: '#/components/parameters/SessionId'
+    get:
+      tags: [Sessions]
+      summary: Get a session by ID
+      operationId: getSession
+      responses:
+        '200':
+          description: The session
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Session'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /sessions/{id}/status:
+    parameters:
+      - $ref: '#/components/parameters/SessionId'
+    get:
+      tags: [Sessions]
+      summary: Get session status with task details
+      operationId: getSessionStatus
+      responses:
+        '200':
+          description: Session status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionStatusResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /sessions/{id}/complete:
+    parameters:
+      - $ref: '#/components/parameters/SessionId'
+    post:
+      tags: [Sessions]
+      summary: Complete a session
+      description: |
+        Completes the session, creates a history entry, and deletes all tasks.
+        The session is marked as completed and cannot be modified further.
+      operationId: completeSession
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CompleteSessionInput'
+      responses:
+        '200':
+          description: Session completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionCompletionResult'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          description: Session already completed
+          content:
+            application/json:
+              schema:
+                type: string
+
+  # ============================================================
+  # Tasks
+  # ============================================================
+  /tasks/{id}:
+    parameters:
+      - $ref: '#/components/parameters/TaskId'
+    get:
+      tags: [Tasks]
+      summary: Get a task by ID
+      operationId: getTask
+      responses:
+        '200':
+          description: The task
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Task'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    put:
+      tags: [Tasks]
+      summary: Update a task
+      operationId: updateTask
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateTaskInput'
+      responses:
+        '200':
+          description: Task updated
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /tasks/{id}/notes:
+    parameters:
+      - $ref: '#/components/parameters/TaskId'
+    get:
+      tags: [Notes]
+      summary: List implementation notes for a task
+      operationId: listTaskNotes
+      responses:
+        '200':
+          description: Implementation notes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ImplementationNote'
+    post:
+      tags: [Notes]
+      summary: Create an implementation note for a task
+      operationId: createTaskNote
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateImplementationNoteInput'
+      responses:
+        '201':
+          description: Note created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImplementationNote'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+components:
+  parameters:
+    ProjectId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: Project UUID
+
+    DirectoryId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: Directory UUID
+
+    FeatureId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: Feature UUID
+
+    SessionId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: Session UUID
+
+    TaskId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: Task UUID
+
+  responses:
+    NotFound:
+      description: Resource not found
+      content:
+        text/plain:
+          schema:
+            type: string
+            example: "Project not found"
+
+    InternalError:
+      description: Internal server error
+      content:
+        text/plain:
+          schema:
+            type: string
+
+  schemas:
+    # ============================================================
+    # Project schemas
+    # ============================================================
+    Project:
+      type: object
+      required: [id, name, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          example: "RocketManifest"
+        description:
+          type: string
+          nullable: true
+          example: "Living feature documentation server"
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    CreateProjectInput:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          example: "My Project"
+        description:
+          type: string
+          nullable: true
+
+    UpdateProjectInput:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+          nullable: true
+
+    ProjectDirectory:
+      type: object
+      required: [id, project_id, path, is_primary, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        project_id:
+          type: string
+          format: uuid
+        path:
+          type: string
+          example: "/Users/dev/projects/my-project"
+        git_remote:
+          type: string
+          nullable: true
+          example: "git@github.com:org/repo.git"
+        is_primary:
+          type: boolean
+          default: false
+        created_at:
+          type: string
+          format: date-time
+
+    AddDirectoryInput:
+      type: object
+      required: [path]
+      properties:
+        path:
+          type: string
+          example: "/Users/dev/projects/my-project"
+        git_remote:
+          type: string
+          nullable: true
+        is_primary:
+          type: boolean
+          default: false
+
+    ProjectWithDirectories:
+      type: object
+      required: [id, name, created_at, updated_at, directories]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        directories:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProjectDirectory'
+
+    # ============================================================
+    # Feature schemas
+    # ============================================================
+    Feature:
+      type: object
+      required: [id, project_id, title, state, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        project_id:
+          type: string
+          format: uuid
+        parent_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Parent feature ID (null for root features)
+        title:
+          type: string
+          example: "User Authentication"
+        story:
+          type: string
+          nullable: true
+          description: User story or high-level description
+        details:
+          type: string
+          nullable: true
+          description: Implementation details or technical notes
+        state:
+          $ref: '#/components/schemas/FeatureState'
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    FeatureState:
+      type: string
+      enum: [proposed, specified, implemented, deprecated]
+      description: |
+        - proposed: Initial state, idea captured
+        - specified: Requirements defined
+        - implemented: Feature is live in codebase
+        - deprecated: Feature marked for removal
+
+    CreateFeatureInput:
+      type: object
+      required: [title]
+      properties:
+        parent_id:
+          type: string
+          format: uuid
+          nullable: true
+        title:
+          type: string
+        story:
+          type: string
+          nullable: true
+        details:
+          type: string
+          nullable: true
+        state:
+          $ref: '#/components/schemas/FeatureState'
+
+    UpdateFeatureInput:
+      type: object
+      properties:
+        title:
+          type: string
+        story:
+          type: string
+          nullable: true
+        details:
+          type: string
+          nullable: true
+        state:
+          $ref: '#/components/schemas/FeatureState'
+
+    FeatureHistory:
+      type: object
+      required: [id, feature_id, summary, author, created_at]
+      description: |
+        Append-only log entry recording what happened during a session.
+        Similar to git log - records implementation history, not version snapshots.
+      properties:
+        id:
+          type: string
+          format: uuid
+        feature_id:
+          type: string
+          format: uuid
+        session_id:
+          type: string
+          format: uuid
+          nullable: true
+        summary:
+          type: string
+          description: Summary of work completed
+        files_changed:
+          type: array
+          nullable: true
+          items:
+            type: string
+          description: List of files modified during the session
+        author:
+          type: string
+          description: Who or what created this entry (agent name or user)
+        created_at:
+          type: string
+          format: date-time
+
+    # ============================================================
+    # Session schemas
+    # ============================================================
+    Session:
+      type: object
+      required: [id, feature_id, goal, status, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        feature_id:
+          type: string
+          format: uuid
+        goal:
+          type: string
+          example: "Implement OAuth login with Google"
+        status:
+          $ref: '#/components/schemas/SessionStatus'
+        created_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    SessionStatus:
+      type: string
+      enum: [active, completed, failed]
+
+    CreateSessionInput:
+      type: object
+      required: [feature_id, goal, tasks]
+      properties:
+        feature_id:
+          type: string
+          format: uuid
+        goal:
+          type: string
+        tasks:
+          type: array
+          items:
+            $ref: '#/components/schemas/CreateTaskInput'
+
+    SessionResponse:
+      type: object
+      required: [session, tasks]
+      properties:
+        session:
+          $ref: '#/components/schemas/Session'
+        tasks:
+          type: array
+          items:
+            $ref: '#/components/schemas/Task'
+
+    SessionStatusResponse:
+      type: object
+      required: [session, feature, tasks]
+      properties:
+        session:
+          $ref: '#/components/schemas/Session'
+        feature:
+          $ref: '#/components/schemas/SessionFeatureSummary'
+        tasks:
+          type: array
+          items:
+            $ref: '#/components/schemas/Task'
+
+    SessionFeatureSummary:
+      type: object
+      required: [id, title]
+      properties:
+        id:
+          type: string
+          format: uuid
+        title:
+          type: string
+
+    CompleteSessionInput:
+      type: object
+      required: [summary]
+      properties:
+        summary:
+          type: string
+          description: Summary of work completed in this session
+
+    SessionCompletionResult:
+      type: object
+      required: [session, history_entry]
+      properties:
+        session:
+          $ref: '#/components/schemas/Session'
+        history_entry:
+          $ref: '#/components/schemas/FeatureHistory'
+
+    # ============================================================
+    # Task schemas
+    # ============================================================
+    Task:
+      type: object
+      required: [id, session_id, title, scope, status, agent_type, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        session_id:
+          type: string
+          format: uuid
+        parent_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Parent task ID for sub-tasks (null for top-level tasks)
+        title:
+          type: string
+        scope:
+          type: string
+          description: Scope description for the agent
+        status:
+          $ref: '#/components/schemas/TaskStatus'
+        agent_type:
+          $ref: '#/components/schemas/AgentType'
+        worktree_path:
+          type: string
+          nullable: true
+          description: Git worktree path for isolated work
+        branch:
+          type: string
+          nullable: true
+          description: Git branch name
+        created_at:
+          type: string
+          format: date-time
+
+    TaskStatus:
+      type: string
+      enum: [pending, running, completed, failed]
+
+    AgentType:
+      type: string
+      enum: [claude, gemini, codex]
+
+    CreateTaskInput:
+      type: object
+      required: [title, scope, agent_type]
+      properties:
+        parent_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Parent task ID for creating sub-tasks
+        title:
+          type: string
+        scope:
+          type: string
+        agent_type:
+          $ref: '#/components/schemas/AgentType'
+
+    UpdateTaskInput:
+      type: object
+      properties:
+        status:
+          $ref: '#/components/schemas/TaskStatus'
+        worktree_path:
+          type: string
+          nullable: true
+        branch:
+          type: string
+          nullable: true
+
+    # ============================================================
+    # Implementation Note schemas
+    # ============================================================
+    ImplementationNote:
+      type: object
+      required: [id, content, files_changed, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        feature_id:
+          type: string
+          format: uuid
+          nullable: true
+        task_id:
+          type: string
+          format: uuid
+          nullable: true
+        content:
+          type: string
+          description: Markdown content describing implementation details
+        files_changed:
+          type: array
+          items:
+            type: string
+          description: List of files modified
+        created_at:
+          type: string
+          format: date-time
+
+    CreateImplementationNoteInput:
+      type: object
+      required: [content, files_changed]
+      properties:
+        content:
+          type: string
+        files_changed:
+          type: array
+          items:
+            type: string
