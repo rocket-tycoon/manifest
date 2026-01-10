@@ -59,7 +59,16 @@ speculate! {
 }
 ```
 
-Test files: `tests/db_spec.rs`, `tests/api_spec.rs` (59 tests total)
+Test files: `tests/db_spec.rs`, `tests/api_spec.rs` (62 tests total)
+
+## Development Practices
+
+**Contract-First Development**: When adding or modifying API endpoints:
+1. Update `openapi.yaml` first (or immediately after implementation)
+2. Add tests for the new behavior
+3. Implement the feature
+
+The OpenAPI spec is the source of truth for the HTTP API. Keeping it current is as important as writing tests.
 
 ## Architecture
 
@@ -120,6 +129,7 @@ All routes prefixed with `/api/v1`:
   - `/projects/{id}/directories` - GET/POST project directories
   - `/projects/{id}/features` - GET/POST features for project
   - `/projects/{id}/features/roots` - GET root features
+  - `/projects/{id}/features/tree` - GET complete feature tree (nested)
 - Features: CRUD at `/features`, `/features/{id}`
   - `/features/{id}/children` - GET direct children
   - `/features/{id}/history` - GET feature history
