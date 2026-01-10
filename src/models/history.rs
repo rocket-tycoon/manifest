@@ -17,16 +17,41 @@ pub struct FeatureHistory {
     pub feature_id: Uuid,
     /// The session that generated this history entry, if any.
     pub session_id: Option<Uuid>,
-    /// Summary of the work done.
-    pub summary: String,
-    /// Files that were changed during this work.
-    pub files_changed: Vec<String>,
-    /// Who did the work (agent type or human name).
-    pub author: String,
+    /// Structured details about the work done.
+    pub details: HistoryDetails,
     pub created_at: DateTime<Utc>,
 }
 
-/// Input for manually creating a history entry.
+/// Structured details about work done in a history entry.
+///
+/// Stored as JSON to allow schema evolution without migrations.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct HistoryDetails {
+    /// Summary of the work done.
+    pub summary: String,
+    /// Who did the work (agent type or human name).
+    pub author: String,
+    /// Files that were changed during this work.
+    #[serde(default)]
+    pub files_changed: Vec<String>,
+    /// Git commits created during this work.
+    #[serde(default)]
+    pub commits: Vec<CommitRef>,
+}
+
+/// A reference to a git commit.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CommitRef {
+    /// The commit SHA (short or full).
+    pub sha: String,
+    /// The commit message (first line).
+    pub message: String,
+    /// The commit author, if different from the session author.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub author: Option<String>,
+}
+
+/// Input for creating a history entry.
 ///
 /// Typically history entries are created automatically when sessions complete,
 /// but this input allows manual creation for migrations or special cases.
@@ -34,7 +59,5 @@ pub struct FeatureHistory {
 pub struct CreateHistoryInput {
     pub feature_id: Uuid,
     pub session_id: Option<Uuid>,
-    pub summary: String,
-    pub files_changed: Vec<String>,
-    pub author: String,
+    pub details: HistoryDetails,
 }

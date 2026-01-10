@@ -20,17 +20,6 @@ pub struct StartTaskRequest {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
-pub struct AddImplementationNoteRequest {
-    #[schemars(description = "The UUID of the task to add a note to")]
-    pub task_id: String,
-    #[schemars(description = "The content of the implementation note - document decisions, progress, or blockers")]
-    pub content: String,
-    #[schemars(description = "List of file paths that were modified (e.g. ['src/main.rs', 'tests/api_test.rs'])")]
-    #[serde(default)]
-    pub files_changed: Vec<String>,
-}
-
-#[derive(Debug, Deserialize, JsonSchema)]
 pub struct CompleteTaskRequest {
     #[schemars(description = "The UUID of the task to mark as complete")]
     pub task_id: String,
@@ -38,9 +27,13 @@ pub struct CompleteTaskRequest {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct CreateSessionRequest {
-    #[schemars(description = "The UUID of the feature to start a session on (must be a leaf feature with no children)")]
+    #[schemars(
+        description = "The UUID of the feature to start a session on (must be a leaf feature with no children)"
+    )]
     pub feature_id: String,
-    #[schemars(description = "The goal of this session - what will be accomplished when the session ends")]
+    #[schemars(
+        description = "The goal of this session - what will be accomplished when the session ends"
+    )]
     pub goal: String,
 }
 
@@ -50,9 +43,13 @@ pub struct CreateTaskRequest {
     pub session_id: String,
     #[schemars(description = "Short title describing what this task accomplishes")]
     pub title: String,
-    #[schemars(description = "Detailed scope of work - be specific about what to implement, test, or verify")]
+    #[schemars(
+        description = "Detailed scope of work - be specific about what to implement, test, or verify"
+    )]
     pub scope: String,
-    #[schemars(description = "Which agent type should handle this task: 'claude', 'gemini', or 'codex'")]
+    #[schemars(
+        description = "Which agent type should handle this task: 'claude', 'gemini', or 'codex'"
+    )]
     pub agent_type: String,
 }
 
@@ -66,11 +63,33 @@ pub struct ListSessionTasksRequest {
 pub struct CompleteSessionRequest {
     #[schemars(description = "The UUID of the session to complete")]
     pub session_id: String,
-    #[schemars(description = "Summary of work done during this session - becomes the feature history entry")]
+    #[schemars(
+        description = "Summary of work done during this session - becomes the feature history entry"
+    )]
     pub summary: String,
-    #[schemars(description = "Whether to mark the feature as 'implemented'. Defaults to true. Set to false if work is partial or feature needs more sessions.")]
+    #[schemars(description = "Files that were changed during this session")]
+    #[serde(default)]
+    pub files_changed: Vec<String>,
+    #[schemars(description = "Git commits created during this session")]
+    #[serde(default)]
+    pub commits: Vec<CommitRefInput>,
+    #[schemars(
+        description = "Whether to mark the feature as 'implemented'. Defaults to true. Set to false if work is partial or feature needs more sessions."
+    )]
     #[serde(default = "default_true")]
     pub mark_implemented: bool,
+}
+
+/// A reference to a git commit for MCP input.
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct CommitRefInput {
+    #[schemars(description = "The commit SHA (short or full)")]
+    pub sha: String,
+    #[schemars(description = "The commit message (first line)")]
+    pub message: String,
+    #[schemars(description = "The commit author, if different from the session author")]
+    #[serde(default)]
+    pub author: Option<String>,
 }
 
 fn default_true() -> bool {

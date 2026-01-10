@@ -18,6 +18,16 @@ const MIGRATIONS: &[Migration] = &[
         name: "add_instructions",
         sql: include_str!("migrations/002_add_instructions.sql"),
     },
+    Migration {
+        version: "003",
+        name: "remove_notes",
+        sql: include_str!("migrations/003_remove_notes.sql"),
+    },
+    Migration {
+        version: "004",
+        name: "history_details",
+        sql: include_str!("migrations/004_history_details.sql"),
+    },
 ];
 
 pub fn run_migrations(conn: &Connection) -> Result<()> {
@@ -27,8 +37,9 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
             version TEXT PRIMARY KEY,
             name TEXT NOT NULL,
             applied_at TEXT NOT NULL
-        )"
-    ).context("Failed to create schema_migrations table")?;
+        )",
+    )
+    .context("Failed to create schema_migrations table")?;
 
     // Check for existing database without version tracking (upgrade path)
     let needs_baseline = check_needs_baseline(conn)?;
@@ -52,11 +63,10 @@ pub fn run_migrations(conn: &Connection) -> Result<()> {
 
 fn check_needs_baseline(conn: &Connection) -> Result<bool> {
     // If schema_migrations is empty but tables exist, this is an existing database
-    let migration_count: i32 = conn.query_row(
-        "SELECT COUNT(*) FROM schema_migrations",
-        [],
-        |row| row.get(0),
-    )?;
+    let migration_count: i32 =
+        conn.query_row("SELECT COUNT(*) FROM schema_migrations", [], |row| {
+            row.get(0)
+        })?;
 
     if migration_count > 0 {
         return Ok(false);
@@ -90,16 +100,20 @@ fn mark_migration_applied(conn: &Connection, version: &str, name: &str) -> Resul
 }
 
 fn apply_migration(conn: &Connection, migration: &Migration) -> Result<()> {
-    tracing::info!("Applying migration {}: {}", migration.version, migration.name);
+    tracing::info!(
+        "Applying migration {}: {}",
+        migration.version,
+        migration.name
+    );
 
     // Run migration in a transaction
-    conn.execute_batch(&format!(
-        "BEGIN TRANSACTION; {} COMMIT;",
-        migration.sql
-    )).with_context(|| format!(
-        "Failed to apply migration {}: {}",
-        migration.version, migration.name
-    ))?;
+    conn.execute_batch(&format!("BEGIN TRANSACTION; {} COMMIT;", migration.sql))
+        .with_context(|| {
+            format!(
+                "Failed to apply migration {}: {}",
+                migration.version, migration.name
+            )
+        })?;
 
     mark_migration_applied(conn, migration.version, migration.name)?;
 
@@ -117,16 +131,18 @@ mod tests {
         run_migrations(&conn).unwrap();
 
         // Verify tables exist
-        let count: i32 = conn.query_row(
-            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='features'",
-            [],
-            |row| row.get(0),
-        ).unwrap();
+        let count: i32 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='features'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
         assert_eq!(count, 1);
 
         // Verify all migrations were recorded
         let versions = get_applied_migrations(&conn).unwrap();
-        assert_eq!(versions, vec!["001", "002"]);
+        assert_eq!(versions, vec!["001", "002", "003", "004"]);
     }
 
     #[test]
@@ -136,7 +152,7 @@ mod tests {
         run_migrations(&conn).unwrap(); // Should not fail
 
         let versions = get_applied_migrations(&conn).unwrap();
-        assert_eq!(versions, vec!["001", "002"]);
+        assert_eq!(versions, vec!["001", "002", "003", "004"]);
     }
 
     #[test]
@@ -145,16 +161,18 @@ mod tests {
 
         // Simulate existing database by creating core tables directly
         // Must include projects table for migration 002 to work
+        // Must include feature_history table for migration 004 to work
         conn.execute_batch("
             CREATE TABLE features (id TEXT PRIMARY KEY);
             CREATE TABLE projects (id TEXT PRIMARY KEY, name TEXT, description TEXT, created_at TEXT, updated_at TEXT);
             CREATE TABLE project_directories (id TEXT PRIMARY KEY, project_id TEXT, path TEXT, git_remote TEXT, is_primary INTEGER, created_at TEXT);
+            CREATE TABLE feature_history (id TEXT PRIMARY KEY, feature_id TEXT, session_id TEXT, summary TEXT, files_changed JSON, author TEXT, created_at TEXT);
         ").unwrap();
 
-        // Run migrations - should detect existing DB and baseline, then apply 002
+        // Run migrations - should detect existing DB and baseline, then apply 002 and 003
         run_migrations(&conn).unwrap();
 
         let versions = get_applied_migrations(&conn).unwrap();
-        assert_eq!(versions, vec!["001", "002"]);
+        assert_eq!(versions, vec!["001", "002", "003", "004"]);
     }
 }

@@ -7,8 +7,7 @@ pub use types::*;
 use rmcp::{
     handler::server::{tool::ToolRouter, wrapper::Parameters},
     model::{CallToolResult, Content, ServerInfo},
-    tool, tool_handler, tool_router,
-    ErrorData as McpError, ServerHandler, ServiceExt,
+    tool, tool_handler, tool_router, ErrorData as McpError, ServerHandler, ServiceExt,
 };
 use uuid::Uuid;
 
@@ -41,7 +40,9 @@ impl McpServer {
     // Agent Tools - Used by agents working on assigned tasks
     // ============================================================
 
-    #[tool(description = "Retrieve your assigned task with full feature context. Call this FIRST when starting work. Returns: task details (id, title, scope, status), feature specification (title, story, details), and session goal. Use this information to understand what to implement before writing any code.")]
+    #[tool(
+        description = "Retrieve your assigned task with full feature context. Call this FIRST when starting work. Returns: task details (id, title, scope, status), feature specification (title, story, details), and session goal. Use this information to understand what to implement before writing any code."
+    )]
     async fn get_task_context(
         &self,
         params: Parameters<GetTaskContextRequest>,
@@ -49,15 +50,21 @@ impl McpServer {
         let req = params.0;
         let task_id = Self::parse_uuid(&req.task_id)?;
 
-        let task = self.db.get_task(task_id)
+        let task = self
+            .db
+            .get_task(task_id)
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .ok_or_else(|| McpError::invalid_params("Task not found", None))?;
 
-        let session = self.db.get_session(task.session_id)
+        let session = self
+            .db
+            .get_session(task.session_id)
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .ok_or_else(|| McpError::internal_error("Session not found", None))?;
 
-        let feature = self.db.get_feature(session.feature_id)
+        let feature = self
+            .db
+            .get_feature(session.feature_id)
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .ok_or_else(|| McpError::internal_error("Feature not found", None))?;
 
@@ -85,7 +92,9 @@ impl McpServer {
         Ok(CallToolResult::success(vec![Content::text(json)]))
     }
 
-    #[tool(description = "Signal that you are beginning work on a task. Call this AFTER get_task_context and BEFORE making any code changes. Sets task status to 'running' so the orchestrator knows work is in progress. Side effect: updates task.status to 'running'.")]
+    #[tool(
+        description = "Signal that you are beginning work on a task. Call this AFTER get_task_context and BEFORE making any code changes. Sets task status to 'running' so the orchestrator knows work is in progress. Side effect: updates task.status to 'running'."
+    )]
     async fn start_task(
         &self,
         params: Parameters<StartTaskRequest>,
@@ -93,38 +102,30 @@ impl McpServer {
         let req = params.0;
         let task_id = Self::parse_uuid(&req.task_id)?;
 
-        let updated = self.db.update_task(task_id, UpdateTaskInput {
-            status: Some(TaskStatus::Running),
-            worktree_path: None,
-            branch: None,
-        })
-        .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        let updated = self
+            .db
+            .update_task(
+                task_id,
+                UpdateTaskInput {
+                    status: Some(TaskStatus::Running),
+                    worktree_path: None,
+                    branch: None,
+                },
+            )
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
 
         if !updated {
             return Err(McpError::invalid_params("Task not found", None));
         }
 
-        Ok(CallToolResult::success(vec![Content::text("Task started - status set to 'running'")]))
+        Ok(CallToolResult::success(vec![Content::text(
+            "Task started - status set to 'running'",
+        )]))
     }
 
-    #[tool(description = "Document implementation details, decisions, or progress on your task. Call this to record: architectural decisions, file changes, blockers encountered, or completion summaries. Notes persist in feature history after the session ends. Include files_changed array to track which files were modified.")]
-    async fn add_implementation_note(
-        &self,
-        params: Parameters<AddImplementationNoteRequest>,
-    ) -> Result<CallToolResult, McpError> {
-        let req = params.0;
-        let task_id = Self::parse_uuid(&req.task_id)?;
-
-        let note = self.db.create_note_for_task(task_id, CreateImplementationNoteInput {
-            content: req.content,
-            files_changed: req.files_changed,
-        })
-        .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-
-        Ok(CallToolResult::success(vec![Content::text(format!("Note added with id: {}", note.id))]))
-    }
-
-    #[tool(description = "Signal that your task is finished. Call this ONLY when all work is done and verified. Before calling: ensure code compiles, tests pass, and implementation matches the task scope. After calling: your work is recorded and you should stop making changes. Side effect: updates task.status to 'completed'.")]
+    #[tool(
+        description = "Signal that your task is finished. Call this ONLY when all work is done and verified. Before calling: ensure code compiles, tests pass, and implementation matches the task scope. After calling: your work is recorded and you should stop making changes. Side effect: updates task.status to 'completed'."
+    )]
     async fn complete_task(
         &self,
         params: Parameters<CompleteTaskRequest>,
@@ -132,25 +133,34 @@ impl McpServer {
         let req = params.0;
         let task_id = Self::parse_uuid(&req.task_id)?;
 
-        let updated = self.db.update_task(task_id, UpdateTaskInput {
-            status: Some(TaskStatus::Completed),
-            worktree_path: None,
-            branch: None,
-        })
-        .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        let updated = self
+            .db
+            .update_task(
+                task_id,
+                UpdateTaskInput {
+                    status: Some(TaskStatus::Completed),
+                    worktree_path: None,
+                    branch: None,
+                },
+            )
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
 
         if !updated {
             return Err(McpError::invalid_params("Task not found", None));
         }
 
-        Ok(CallToolResult::success(vec![Content::text("Task completed successfully")]))
+        Ok(CallToolResult::success(vec![Content::text(
+            "Task completed successfully",
+        )]))
     }
 
     // ============================================================
     // Orchestrator Tools - Used to manage sessions and tasks
     // ============================================================
 
-    #[tool(description = "Start a new implementation session on a feature. Only one active session per feature is allowed. Use this to begin work on a feature, then create tasks within the session for agents to execute. The goal should describe the overall objective. Constraint: feature must be a leaf (no children). Side effect: creates session with status 'active'.")]
+    #[tool(
+        description = "Start a new implementation session on a feature. Only one active session per feature is allowed. Use this to begin work on a feature, then create tasks within the session for agents to execute. The goal should describe the overall objective. Constraint: feature must be a leaf (no children). Side effect: creates session with status 'active'."
+    )]
     async fn create_session(
         &self,
         params: Parameters<CreateSessionRequest>,
@@ -158,12 +168,14 @@ impl McpServer {
         let req = params.0;
         let feature_id = Self::parse_uuid(&req.feature_id)?;
 
-        let response = self.db.create_session(CreateSessionInput {
-            feature_id,
-            goal: req.goal,
-            tasks: vec![], // Create session without tasks, add them separately
-        })
-        .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        let response = self
+            .db
+            .create_session(CreateSessionInput {
+                feature_id,
+                goal: req.goal,
+                tasks: vec![], // Create session without tasks, add them separately
+            })
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
 
         let result = SessionInfo {
             id: response.session.id.to_string(),
@@ -178,7 +190,9 @@ impl McpServer {
         Ok(CallToolResult::success(vec![Content::text(json)]))
     }
 
-    #[tool(description = "Create a new task within a session. Use this to break down feature work into discrete units that can be assigned to agents. Each task should be small enough for one agent to complete (1-3 story points). Include detailed scope so the agent knows exactly what to implement. Returns the created task with its ID for spawning an agent.")]
+    #[tool(
+        description = "Create a new task within a session. Use this to break down feature work into discrete units that can be assigned to agents. Each task should be small enough for one agent to complete (1-3 story points). Include detailed scope so the agent knows exactly what to implement. Returns the created task with its ID for spawning an agent."
+    )]
     async fn create_task(
         &self,
         params: Parameters<CreateTaskRequest>,
@@ -186,19 +200,28 @@ impl McpServer {
         let req = params.0;
         let session_id = Self::parse_uuid(&req.session_id)?;
 
-        let agent_type = AgentType::from_str(&req.agent_type)
-            .ok_or_else(|| McpError::invalid_params(
-                format!("Invalid agent_type '{}'. Must be: claude, gemini, or codex", req.agent_type),
-                None
-            ))?;
+        let agent_type = AgentType::from_str(&req.agent_type).ok_or_else(|| {
+            McpError::invalid_params(
+                format!(
+                    "Invalid agent_type '{}'. Must be: claude, gemini, or codex",
+                    req.agent_type
+                ),
+                None,
+            )
+        })?;
 
-        let task = self.db.create_task(session_id, CreateTaskInput {
-            parent_id: None,
-            title: req.title,
-            scope: req.scope,
-            agent_type,
-        })
-        .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        let task = self
+            .db
+            .create_task(
+                session_id,
+                CreateTaskInput {
+                    parent_id: None,
+                    title: req.title,
+                    scope: req.scope,
+                    agent_type,
+                },
+            )
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
 
         let result = TaskInfo {
             id: task.id.to_string(),
@@ -214,7 +237,9 @@ impl McpServer {
         Ok(CallToolResult::success(vec![Content::text(json)]))
     }
 
-    #[tool(description = "List all tasks in a session with their current status. Use this to monitor progress of parallel agent work. Returns array of tasks with: id, title, scope, status (pending/running/completed/failed), agent_type. Check status to know which tasks are done.")]
+    #[tool(
+        description = "List all tasks in a session with their current status. Use this to monitor progress of parallel agent work. Returns array of tasks with: id, title, scope, status (pending/running/completed/failed), agent_type. Check status to know which tasks are done."
+    )]
     async fn list_session_tasks(
         &self,
         params: Parameters<ListSessionTasksRequest>,
@@ -222,18 +247,23 @@ impl McpServer {
         let req = params.0;
         let session_id = Self::parse_uuid(&req.session_id)?;
 
-        let tasks = self.db.get_tasks_by_session(session_id)
+        let tasks = self
+            .db
+            .get_tasks_by_session(session_id)
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
 
         let result = TaskListResponse {
             session_id: session_id.to_string(),
-            tasks: tasks.into_iter().map(|t| TaskInfo {
-                id: t.id.to_string(),
-                title: t.title,
-                scope: t.scope,
-                status: t.status.as_str().to_string(),
-                agent_type: t.agent_type.as_str().to_string(),
-            }).collect(),
+            tasks: tasks
+                .into_iter()
+                .map(|t| TaskInfo {
+                    id: t.id.to_string(),
+                    title: t.title,
+                    scope: t.scope,
+                    status: t.status.as_str().to_string(),
+                    agent_type: t.agent_type.as_str().to_string(),
+                })
+                .collect(),
         };
 
         let json = serde_json::to_string_pretty(&result)
@@ -242,7 +272,9 @@ impl McpServer {
         Ok(CallToolResult::success(vec![Content::text(json)]))
     }
 
-    #[tool(description = "Complete a session after all tasks are done. Call this when all tasks are completed to finalize the session. Creates a history entry summarizing the work and optionally marks the feature as 'implemented'. IMPORTANT: By default, this marks the feature as implemented. Set mark_implemented=false if the work is partial. Side effects: creates feature_history entry, deletes task records, updates session status to 'completed', optionally updates feature state to 'implemented'.")]
+    #[tool(
+        description = "Complete a session after all tasks are done. Call this when all tasks are completed to finalize the session. Creates a history entry summarizing the work and optionally marks the feature as 'implemented'. IMPORTANT: By default, this marks the feature as implemented. Set mark_implemented=false if the work is partial. Side effects: creates feature_history entry, deletes task records, updates session status to 'completed', optionally updates feature state to 'implemented'."
+    )]
     async fn complete_session(
         &self,
         params: Parameters<CompleteSessionRequest>,
@@ -257,17 +289,41 @@ impl McpServer {
             None
         };
 
-        let result = self.db.complete_session(session_id, CompleteSessionInput {
-            summary: req.summary,
-            feature_state,
-        })
-        .map_err(|e| McpError::internal_error(e.to_string(), None))?
-        .ok_or_else(|| McpError::invalid_params("Session not found", None))?;
+        // Convert MCP CommitRefInput to model CommitRef
+        let commits = req
+            .commits
+            .into_iter()
+            .map(|c| CommitRef {
+                sha: c.sha,
+                message: c.message,
+                author: c.author,
+            })
+            .collect();
+
+        let result = self
+            .db
+            .complete_session(
+                session_id,
+                CompleteSessionInput {
+                    summary: req.summary,
+                    author: "session".to_string(),
+                    files_changed: req.files_changed,
+                    commits,
+                    feature_state,
+                },
+            )
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?
+            .ok_or_else(|| McpError::invalid_params("Session not found", None))?;
 
         let response = CompleteSessionResponse {
             session_id: result.session.id.to_string(),
             feature_id: result.session.feature_id.to_string(),
-            feature_state: if req.mark_implemented { "implemented" } else { "unchanged" }.to_string(),
+            feature_state: if req.mark_implemented {
+                "implemented"
+            } else {
+                "unchanged"
+            }
+            .to_string(),
             history_entry_id: result.history_entry.id.to_string(),
         };
 
@@ -282,14 +338,14 @@ impl McpServer {
 impl ServerHandler for McpServer {
     fn get_info(&self) -> ServerInfo {
         ServerInfo {
-            instructions: Some(r#"RocketManifest manages feature implementation sessions and tasks.
+            instructions: Some(
+                r#"RocketManifest manages feature implementation sessions and tasks.
 
 AGENT WORKFLOW (when assigned a task_id):
 1. Call get_task_context with your task_id to understand your assignment
 2. Call start_task to signal you're beginning work
 3. Implement the task scope - write code, run tests, verify
-4. Call add_implementation_note to document decisions and file changes
-5. Call complete_task when done and verified
+4. Call complete_task when done and verified
 
 ORCHESTRATOR WORKFLOW (when managing a feature):
 1. Call create_session on a leaf feature to start work
@@ -300,9 +356,10 @@ ORCHESTRATOR WORKFLOW (when managing a feature):
 
 IMPORTANT:
 - Read feature details carefully before coding
-- Document architectural decisions in implementation notes
 - Only call complete_task when work is verified (tests pass, code compiles)
-- Tasks should be small enough for one agent (1-3 story points)"#.into()),
+- Tasks should be small enough for one agent (1-3 story points)"#
+                    .into(),
+            ),
             ..Default::default()
         }
     }

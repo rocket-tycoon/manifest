@@ -51,19 +51,21 @@ impl Database {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
             "SELECT id, name, description, instructions, created_at, updated_at
-             FROM projects ORDER BY name"
+             FROM projects ORDER BY name",
         )?;
 
-        let projects = stmt.query_map([], |row| {
-            Ok(Project {
-                id: parse_uuid(row.get::<_, String>(0)?),
-                name: row.get(1)?,
-                description: row.get(2)?,
-                instructions: row.get(3)?,
-                created_at: parse_datetime(row.get::<_, String>(4)?),
-                updated_at: parse_datetime(row.get::<_, String>(5)?),
-            })
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let projects = stmt
+            .query_map([], |row| {
+                Ok(Project {
+                    id: parse_uuid(row.get::<_, String>(0)?),
+                    name: row.get(1)?,
+                    description: row.get(2)?,
+                    instructions: row.get(3)?,
+                    created_at: parse_datetime(row.get::<_, String>(4)?),
+                    updated_at: parse_datetime(row.get::<_, String>(5)?),
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         Ok(projects)
     }
@@ -72,7 +74,7 @@ impl Database {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
             "SELECT id, name, description, instructions, created_at, updated_at
-             FROM projects WHERE id = ?"
+             FROM projects WHERE id = ?",
         )?;
 
         let mut rows = stmt.query([id.to_string()])?;
@@ -166,25 +168,31 @@ impl Database {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
             "SELECT id, project_id, path, git_remote, is_primary, instructions, created_at
-             FROM project_directories WHERE project_id = ? ORDER BY is_primary DESC, path"
+             FROM project_directories WHERE project_id = ? ORDER BY is_primary DESC, path",
         )?;
 
-        let dirs = stmt.query_map([project_id.to_string()], |row| {
-            Ok(ProjectDirectory {
-                id: parse_uuid(row.get::<_, String>(0)?),
-                project_id: parse_uuid(row.get::<_, String>(1)?),
-                path: row.get(2)?,
-                git_remote: row.get(3)?,
-                is_primary: row.get::<_, i32>(4)? != 0,
-                instructions: row.get(5)?,
-                created_at: parse_datetime(row.get::<_, String>(6)?),
-            })
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let dirs = stmt
+            .query_map([project_id.to_string()], |row| {
+                Ok(ProjectDirectory {
+                    id: parse_uuid(row.get::<_, String>(0)?),
+                    project_id: parse_uuid(row.get::<_, String>(1)?),
+                    path: row.get(2)?,
+                    git_remote: row.get(3)?,
+                    is_primary: row.get::<_, i32>(4)? != 0,
+                    instructions: row.get(5)?,
+                    created_at: parse_datetime(row.get::<_, String>(6)?),
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         Ok(dirs)
     }
 
-    pub fn add_project_directory(&self, project_id: Uuid, input: AddDirectoryInput) -> Result<ProjectDirectory> {
+    pub fn add_project_directory(
+        &self,
+        project_id: Uuid,
+        input: AddDirectoryInput,
+    ) -> Result<ProjectDirectory> {
         self.get_project(project_id)?
             .ok_or_else(|| anyhow::anyhow!("Project not found"))?;
 
@@ -219,7 +227,10 @@ impl Database {
 
     pub fn remove_project_directory(&self, id: Uuid) -> Result<bool> {
         let conn = self.conn.lock().unwrap();
-        let rows = conn.execute("DELETE FROM project_directories WHERE id = ?", [id.to_string()])?;
+        let rows = conn.execute(
+            "DELETE FROM project_directories WHERE id = ?",
+            [id.to_string()],
+        )?;
         Ok(rows > 0)
     }
 
@@ -231,7 +242,10 @@ impl Database {
 
         let directories = self.get_project_directories(id)?;
 
-        Ok(Some(ProjectWithDirectories { project, directories }))
+        Ok(Some(ProjectWithDirectories {
+            project,
+            directories,
+        }))
     }
 
     // ============================================================
@@ -242,22 +256,25 @@ impl Database {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
             "SELECT id, project_id, parent_id, title, story, details, state, created_at, updated_at
-             FROM features ORDER BY title"
+             FROM features ORDER BY title",
         )?;
 
-        let features = stmt.query_map([], |row| {
-            Ok(Feature {
-                id: parse_uuid(row.get::<_, String>(0)?),
-                project_id: parse_uuid(row.get::<_, String>(1)?),
-                parent_id: row.get::<_, Option<String>>(2)?.map(parse_uuid),
-                title: row.get(3)?,
-                story: row.get(4)?,
-                details: row.get(5)?,
-                state: FeatureState::from_str(&row.get::<_, String>(6)?).unwrap_or(FeatureState::Proposed),
-                created_at: parse_datetime(row.get::<_, String>(7)?),
-                updated_at: parse_datetime(row.get::<_, String>(8)?),
-            })
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let features = stmt
+            .query_map([], |row| {
+                Ok(Feature {
+                    id: parse_uuid(row.get::<_, String>(0)?),
+                    project_id: parse_uuid(row.get::<_, String>(1)?),
+                    parent_id: row.get::<_, Option<String>>(2)?.map(parse_uuid),
+                    title: row.get(3)?,
+                    story: row.get(4)?,
+                    details: row.get(5)?,
+                    state: FeatureState::from_str(&row.get::<_, String>(6)?)
+                        .unwrap_or(FeatureState::Proposed),
+                    created_at: parse_datetime(row.get::<_, String>(7)?),
+                    updated_at: parse_datetime(row.get::<_, String>(8)?),
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         Ok(features)
     }
@@ -266,22 +283,25 @@ impl Database {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
             "SELECT id, project_id, parent_id, title, story, details, state, created_at, updated_at
-             FROM features WHERE project_id = ? ORDER BY title"
+             FROM features WHERE project_id = ? ORDER BY title",
         )?;
 
-        let features = stmt.query_map([project_id.to_string()], |row| {
-            Ok(Feature {
-                id: parse_uuid(row.get::<_, String>(0)?),
-                project_id: parse_uuid(row.get::<_, String>(1)?),
-                parent_id: row.get::<_, Option<String>>(2)?.map(parse_uuid),
-                title: row.get(3)?,
-                story: row.get(4)?,
-                details: row.get(5)?,
-                state: FeatureState::from_str(&row.get::<_, String>(6)?).unwrap_or(FeatureState::Proposed),
-                created_at: parse_datetime(row.get::<_, String>(7)?),
-                updated_at: parse_datetime(row.get::<_, String>(8)?),
-            })
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let features = stmt
+            .query_map([project_id.to_string()], |row| {
+                Ok(Feature {
+                    id: parse_uuid(row.get::<_, String>(0)?),
+                    project_id: parse_uuid(row.get::<_, String>(1)?),
+                    parent_id: row.get::<_, Option<String>>(2)?.map(parse_uuid),
+                    title: row.get(3)?,
+                    story: row.get(4)?,
+                    details: row.get(5)?,
+                    state: FeatureState::from_str(&row.get::<_, String>(6)?)
+                        .unwrap_or(FeatureState::Proposed),
+                    created_at: parse_datetime(row.get::<_, String>(7)?),
+                    updated_at: parse_datetime(row.get::<_, String>(8)?),
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         Ok(features)
     }
@@ -290,7 +310,7 @@ impl Database {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
             "SELECT id, project_id, parent_id, title, story, details, state, created_at, updated_at
-             FROM features WHERE id = ?"
+             FROM features WHERE id = ?",
         )?;
 
         let mut rows = stmt.query([id.to_string()])?;
@@ -302,7 +322,8 @@ impl Database {
                 title: row.get(3)?,
                 story: row.get(4)?,
                 details: row.get(5)?,
-                state: FeatureState::from_str(&row.get::<_, String>(6)?).unwrap_or(FeatureState::Proposed),
+                state: FeatureState::from_str(&row.get::<_, String>(6)?)
+                    .unwrap_or(FeatureState::Proposed),
                 created_at: parse_datetime(row.get::<_, String>(7)?),
                 updated_at: parse_datetime(row.get::<_, String>(8)?),
             }))
@@ -401,22 +422,25 @@ impl Database {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
             "SELECT id, project_id, parent_id, title, story, details, state, created_at, updated_at
-             FROM features WHERE project_id = ? AND parent_id IS NULL ORDER BY title"
+             FROM features WHERE project_id = ? AND parent_id IS NULL ORDER BY title",
         )?;
 
-        let features = stmt.query_map([project_id.to_string()], |row| {
-            Ok(Feature {
-                id: parse_uuid(row.get::<_, String>(0)?),
-                project_id: parse_uuid(row.get::<_, String>(1)?),
-                parent_id: None,
-                title: row.get(3)?,
-                story: row.get(4)?,
-                details: row.get(5)?,
-                state: FeatureState::from_str(&row.get::<_, String>(6)?).unwrap_or(FeatureState::Proposed),
-                created_at: parse_datetime(row.get::<_, String>(7)?),
-                updated_at: parse_datetime(row.get::<_, String>(8)?),
-            })
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let features = stmt
+            .query_map([project_id.to_string()], |row| {
+                Ok(Feature {
+                    id: parse_uuid(row.get::<_, String>(0)?),
+                    project_id: parse_uuid(row.get::<_, String>(1)?),
+                    parent_id: None,
+                    title: row.get(3)?,
+                    story: row.get(4)?,
+                    details: row.get(5)?,
+                    state: FeatureState::from_str(&row.get::<_, String>(6)?)
+                        .unwrap_or(FeatureState::Proposed),
+                    created_at: parse_datetime(row.get::<_, String>(7)?),
+                    updated_at: parse_datetime(row.get::<_, String>(8)?),
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         Ok(features)
     }
@@ -425,22 +449,25 @@ impl Database {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
             "SELECT id, project_id, parent_id, title, story, details, state, created_at, updated_at
-             FROM features WHERE parent_id = ? ORDER BY title"
+             FROM features WHERE parent_id = ? ORDER BY title",
         )?;
 
-        let features = stmt.query_map([parent_id.to_string()], |row| {
-            Ok(Feature {
-                id: parse_uuid(row.get::<_, String>(0)?),
-                project_id: parse_uuid(row.get::<_, String>(1)?),
-                parent_id: row.get::<_, Option<String>>(2)?.map(parse_uuid),
-                title: row.get(3)?,
-                story: row.get(4)?,
-                details: row.get(5)?,
-                state: FeatureState::from_str(&row.get::<_, String>(6)?).unwrap_or(FeatureState::Proposed),
-                created_at: parse_datetime(row.get::<_, String>(7)?),
-                updated_at: parse_datetime(row.get::<_, String>(8)?),
-            })
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let features = stmt
+            .query_map([parent_id.to_string()], |row| {
+                Ok(Feature {
+                    id: parse_uuid(row.get::<_, String>(0)?),
+                    project_id: parse_uuid(row.get::<_, String>(1)?),
+                    parent_id: row.get::<_, Option<String>>(2)?.map(parse_uuid),
+                    title: row.get(3)?,
+                    story: row.get(4)?,
+                    details: row.get(5)?,
+                    state: FeatureState::from_str(&row.get::<_, String>(6)?)
+                        .unwrap_or(FeatureState::Proposed),
+                    created_at: parse_datetime(row.get::<_, String>(7)?),
+                    updated_at: parse_datetime(row.get::<_, String>(8)?),
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         Ok(features)
     }
@@ -498,7 +525,7 @@ impl Database {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
             "SELECT id, feature_id, goal, status, created_at, completed_at
-             FROM sessions WHERE id = ?"
+             FROM sessions WHERE id = ?",
         )?;
 
         let mut rows = stmt.query([id.to_string()])?;
@@ -507,7 +534,8 @@ impl Database {
                 id: parse_uuid(row.get::<_, String>(0)?),
                 feature_id: parse_uuid(row.get::<_, String>(1)?),
                 goal: row.get(2)?,
-                status: SessionStatus::from_str(&row.get::<_, String>(3)?).unwrap_or(SessionStatus::Active),
+                status: SessionStatus::from_str(&row.get::<_, String>(3)?)
+                    .unwrap_or(SessionStatus::Active),
                 created_at: parse_datetime(row.get::<_, String>(4)?),
                 completed_at: row.get::<_, Option<String>>(5)?.map(parse_datetime),
             }))
@@ -591,7 +619,8 @@ impl Database {
             None => return Ok(None),
         };
 
-        let feature = self.get_feature(session.feature_id)?
+        let feature = self
+            .get_feature(session.feature_id)?
             .ok_or_else(|| anyhow::anyhow!("Feature not found"))?;
 
         let tasks = self.get_tasks_by_session(id)?;
@@ -606,7 +635,11 @@ impl Database {
         }))
     }
 
-    pub fn complete_session(&self, id: Uuid, input: CompleteSessionInput) -> Result<Option<SessionCompletionResult>> {
+    pub fn complete_session(
+        &self,
+        id: Uuid,
+        input: CompleteSessionInput,
+    ) -> Result<Option<SessionCompletionResult>> {
         let session = match self.get_session(id)? {
             Some(s) => s,
             None => return Ok(None),
@@ -616,13 +649,16 @@ impl Database {
             anyhow::bail!("Session is not active");
         }
 
-        // Create history entry
+        // Create history entry with structured details
         let history_entry = self.create_history_entry(CreateHistoryInput {
             feature_id: session.feature_id,
             session_id: Some(id),
-            summary: input.summary,
-            files_changed: vec![],
-            author: "session".to_string(),
+            details: HistoryDetails {
+                summary: input.summary,
+                author: input.author,
+                files_changed: input.files_changed,
+                commits: input.commits,
+            },
         })?;
 
         // Delete tasks
@@ -640,7 +676,11 @@ impl Database {
         if let Some(state) = input.feature_state {
             conn.execute(
                 "UPDATE features SET state = ?, updated_at = ? WHERE id = ?",
-                (state.as_str(), now.to_rfc3339(), session.feature_id.to_string()),
+                (
+                    state.as_str(),
+                    now.to_rfc3339(),
+                    session.feature_id.to_string(),
+                ),
             )?;
         }
 
@@ -678,8 +718,10 @@ impl Database {
                 parent_id: row.get::<_, Option<String>>(2)?.map(parse_uuid),
                 title: row.get(3)?,
                 scope: row.get(4)?,
-                status: TaskStatus::from_str(&row.get::<_, String>(5)?).unwrap_or(TaskStatus::Pending),
-                agent_type: AgentType::from_str(&row.get::<_, String>(6)?).unwrap_or(AgentType::Claude),
+                status: TaskStatus::from_str(&row.get::<_, String>(5)?)
+                    .unwrap_or(TaskStatus::Pending),
+                agent_type: AgentType::from_str(&row.get::<_, String>(6)?)
+                    .unwrap_or(AgentType::Claude),
                 worktree_path: row.get(7)?,
                 branch: row.get(8)?,
                 created_at: parse_datetime(row.get::<_, String>(9)?),
@@ -696,20 +738,24 @@ impl Database {
              FROM tasks WHERE session_id = ? ORDER BY created_at"
         )?;
 
-        let tasks = stmt.query_map([session_id.to_string()], |row| {
-            Ok(Task {
-                id: parse_uuid(row.get::<_, String>(0)?),
-                session_id: parse_uuid(row.get::<_, String>(1)?),
-                parent_id: row.get::<_, Option<String>>(2)?.map(parse_uuid),
-                title: row.get(3)?,
-                scope: row.get(4)?,
-                status: TaskStatus::from_str(&row.get::<_, String>(5)?).unwrap_or(TaskStatus::Pending),
-                agent_type: AgentType::from_str(&row.get::<_, String>(6)?).unwrap_or(AgentType::Claude),
-                worktree_path: row.get(7)?,
-                branch: row.get(8)?,
-                created_at: parse_datetime(row.get::<_, String>(9)?),
-            })
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let tasks = stmt
+            .query_map([session_id.to_string()], |row| {
+                Ok(Task {
+                    id: parse_uuid(row.get::<_, String>(0)?),
+                    session_id: parse_uuid(row.get::<_, String>(1)?),
+                    parent_id: row.get::<_, Option<String>>(2)?.map(parse_uuid),
+                    title: row.get(3)?,
+                    scope: row.get(4)?,
+                    status: TaskStatus::from_str(&row.get::<_, String>(5)?)
+                        .unwrap_or(TaskStatus::Pending),
+                    agent_type: AgentType::from_str(&row.get::<_, String>(6)?)
+                        .unwrap_or(AgentType::Claude),
+                    worktree_path: row.get(7)?,
+                    branch: row.get(8)?,
+                    created_at: parse_datetime(row.get::<_, String>(9)?),
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         Ok(tasks)
     }
@@ -721,27 +767,32 @@ impl Database {
              FROM tasks WHERE parent_id = ? ORDER BY created_at"
         )?;
 
-        let tasks = stmt.query_map([parent_id.to_string()], |row| {
-            Ok(Task {
-                id: parse_uuid(row.get::<_, String>(0)?),
-                session_id: parse_uuid(row.get::<_, String>(1)?),
-                parent_id: row.get::<_, Option<String>>(2)?.map(parse_uuid),
-                title: row.get(3)?,
-                scope: row.get(4)?,
-                status: TaskStatus::from_str(&row.get::<_, String>(5)?).unwrap_or(TaskStatus::Pending),
-                agent_type: AgentType::from_str(&row.get::<_, String>(6)?).unwrap_or(AgentType::Claude),
-                worktree_path: row.get(7)?,
-                branch: row.get(8)?,
-                created_at: parse_datetime(row.get::<_, String>(9)?),
-            })
-        })?.collect::<Result<Vec<_>, _>>()?;
+        let tasks = stmt
+            .query_map([parent_id.to_string()], |row| {
+                Ok(Task {
+                    id: parse_uuid(row.get::<_, String>(0)?),
+                    session_id: parse_uuid(row.get::<_, String>(1)?),
+                    parent_id: row.get::<_, Option<String>>(2)?.map(parse_uuid),
+                    title: row.get(3)?,
+                    scope: row.get(4)?,
+                    status: TaskStatus::from_str(&row.get::<_, String>(5)?)
+                        .unwrap_or(TaskStatus::Pending),
+                    agent_type: AgentType::from_str(&row.get::<_, String>(6)?)
+                        .unwrap_or(AgentType::Claude),
+                    worktree_path: row.get(7)?,
+                    branch: row.get(8)?,
+                    created_at: parse_datetime(row.get::<_, String>(9)?),
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         Ok(tasks)
     }
 
     pub fn create_task(&self, session_id: Uuid, input: CreateTaskInput) -> Result<Task> {
         // Verify session exists and is active
-        let session = self.get_session(session_id)?
+        let session = self
+            .get_session(session_id)?
             .ok_or_else(|| anyhow::anyhow!("Session not found"))?;
 
         if session.status != SessionStatus::Active {
@@ -813,94 +864,6 @@ impl Database {
     }
 
     // ============================================================
-    // Implementation Notes operations
-    // ============================================================
-
-    pub fn get_notes_by_task(&self, task_id: Uuid) -> Result<Vec<ImplementationNote>> {
-        let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare(
-            "SELECT id, feature_id, task_id, content, files_changed, created_at
-             FROM implementation_notes WHERE task_id = ? ORDER BY created_at"
-        )?;
-
-        let notes = stmt.query_map([task_id.to_string()], |row| {
-            let files_json: String = row.get(4)?;
-            let files_changed: Vec<String> = serde_json::from_str(&files_json).unwrap_or_default();
-
-            Ok(ImplementationNote {
-                id: parse_uuid(row.get::<_, String>(0)?),
-                feature_id: row.get::<_, Option<String>>(1)?.map(parse_uuid),
-                task_id: row.get::<_, Option<String>>(2)?.map(parse_uuid),
-                content: row.get(3)?,
-                files_changed,
-                created_at: parse_datetime(row.get::<_, String>(5)?),
-            })
-        })?.collect::<Result<Vec<_>, _>>()?;
-
-        Ok(notes)
-    }
-
-    pub fn get_notes_by_feature(&self, feature_id: Uuid) -> Result<Vec<ImplementationNote>> {
-        let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare(
-            "SELECT id, feature_id, task_id, content, files_changed, created_at
-             FROM implementation_notes WHERE feature_id = ? ORDER BY created_at"
-        )?;
-
-        let notes = stmt.query_map([feature_id.to_string()], |row| {
-            let files_json: String = row.get(4)?;
-            let files_changed: Vec<String> = serde_json::from_str(&files_json).unwrap_or_default();
-
-            Ok(ImplementationNote {
-                id: parse_uuid(row.get::<_, String>(0)?),
-                feature_id: row.get::<_, Option<String>>(1)?.map(parse_uuid),
-                task_id: row.get::<_, Option<String>>(2)?.map(parse_uuid),
-                content: row.get(3)?,
-                files_changed,
-                created_at: parse_datetime(row.get::<_, String>(5)?),
-            })
-        })?.collect::<Result<Vec<_>, _>>()?;
-
-        Ok(notes)
-    }
-
-    pub fn create_note_for_task(&self, task_id: Uuid, input: CreateImplementationNoteInput) -> Result<ImplementationNote> {
-        let task = self.get_task(task_id)?
-            .ok_or_else(|| anyhow::anyhow!("Task not found"))?;
-
-        // Get the feature_id from the task's session
-        let session = self.get_session(task.session_id)?
-            .ok_or_else(|| anyhow::anyhow!("Session not found"))?;
-
-        let conn = self.conn.lock().unwrap();
-        let id = Uuid::new_v4();
-        let now = Utc::now();
-        let files_json = serde_json::to_string(&input.files_changed)?;
-
-        conn.execute(
-            "INSERT INTO implementation_notes (id, feature_id, task_id, content, files_changed, created_at)
-             VALUES (?, ?, ?, ?, ?, ?)",
-            (
-                id.to_string(),
-                session.feature_id.to_string(),
-                task_id.to_string(),
-                &input.content,
-                &files_json,
-                now.to_rfc3339(),
-            ),
-        )?;
-
-        Ok(ImplementationNote {
-            id,
-            feature_id: Some(session.feature_id),
-            task_id: Some(task_id),
-            content: input.content,
-            files_changed: input.files_changed,
-            created_at: now,
-        })
-    }
-
-    // ============================================================
     // Feature History operations
     // ============================================================
 
@@ -909,18 +872,20 @@ impl Database {
         let id = Uuid::new_v4();
         let now = Utc::now();
 
-        let files_json = serde_json::to_string(&input.files_changed)?;
+        let details_json = serde_json::to_string(&input.details)?;
 
+        // Write to both old columns (for backwards compat) and new details column
         conn.execute(
-            "INSERT INTO feature_history (id, feature_id, session_id, summary, files_changed, author, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO feature_history (id, feature_id, session_id, summary, files_changed, author, details, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 id.to_string(),
                 input.feature_id.to_string(),
                 input.session_id.map(|u| u.to_string()),
-                &input.summary,
-                &files_json,
-                &input.author,
+                &input.details.summary,
+                serde_json::to_string(&input.details.files_changed)?,
+                &input.details.author,
+                &details_json,
                 now.to_rfc3339(),
             ),
         )?;
@@ -929,9 +894,7 @@ impl Database {
             id,
             feature_id: input.feature_id,
             session_id: input.session_id,
-            summary: input.summary,
-            files_changed: input.files_changed,
-            author: input.author,
+            details: input.details,
             created_at: now,
         })
     }
@@ -939,24 +902,25 @@ impl Database {
     pub fn get_feature_history(&self, feature_id: Uuid) -> Result<Vec<FeatureHistory>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, feature_id, session_id, summary, files_changed, author, created_at
-             FROM feature_history WHERE feature_id = ? ORDER BY created_at DESC"
+            "SELECT id, feature_id, session_id, details, created_at
+             FROM feature_history WHERE feature_id = ? ORDER BY created_at DESC",
         )?;
 
-        let entries = stmt.query_map([feature_id.to_string()], |row| {
-            let files_json: String = row.get(4)?;
-            let files_changed: Vec<String> = serde_json::from_str(&files_json).unwrap_or_default();
+        let entries = stmt
+            .query_map([feature_id.to_string()], |row| {
+                let details_json: String = row.get(3)?;
+                let details: HistoryDetails =
+                    serde_json::from_str(&details_json).unwrap_or_default();
 
-            Ok(FeatureHistory {
-                id: parse_uuid(row.get::<_, String>(0)?),
-                feature_id: parse_uuid(row.get::<_, String>(1)?),
-                session_id: row.get::<_, Option<String>>(2)?.map(parse_uuid),
-                summary: row.get(3)?,
-                files_changed,
-                author: row.get(5)?,
-                created_at: parse_datetime(row.get::<_, String>(6)?),
-            })
-        })?.collect::<Result<Vec<_>, _>>()?;
+                Ok(FeatureHistory {
+                    id: parse_uuid(row.get::<_, String>(0)?),
+                    feature_id: parse_uuid(row.get::<_, String>(1)?),
+                    session_id: row.get::<_, Option<String>>(2)?.map(parse_uuid),
+                    details,
+                    created_at: parse_datetime(row.get::<_, String>(4)?),
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         Ok(entries)
     }

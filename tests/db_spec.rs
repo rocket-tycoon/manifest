@@ -8,7 +8,8 @@ fn create_test_project(db: &Database) -> Project {
         name: "Test Project".to_string(),
         description: None,
         instructions: None,
-    }).expect("Failed to create project")
+    })
+    .expect("Failed to create project")
 }
 
 speculate! {
@@ -618,6 +619,9 @@ speculate! {
             it "returns None for non-existent session" {
                 let result = db.complete_session(Uuid::new_v4(), CompleteSessionInput {
                     summary: "Done".to_string(),
+                    author: "test".to_string(),
+                    files_changed: vec![],
+                    commits: vec![],
                     feature_state: None,
                 }).expect("Query failed");
 
@@ -647,12 +651,15 @@ speculate! {
 
                 let result = db.complete_session(session_response.session.id, CompleteSessionInput {
                     summary: "Implemented the feature".to_string(),
+                    author: "claude".to_string(),
+                    files_changed: vec![],
+                    commits: vec![],
                     feature_state: None,
                 }).expect("Query failed").expect("Session not found");
 
                 assert_eq!(result.session.status, SessionStatus::Completed);
                 assert!(result.session.completed_at.is_some());
-                assert_eq!(result.history_entry.summary, "Implemented the feature");
+                assert_eq!(result.history_entry.details.summary, "Implemented the feature");
                 assert_eq!(result.history_entry.session_id, Some(session_response.session.id));
             }
 
@@ -681,6 +688,9 @@ speculate! {
 
                 db.complete_session(session_response.session.id, CompleteSessionInput {
                     summary: "Done".to_string(),
+                    author: "test".to_string(),
+                    files_changed: vec![],
+                    commits: vec![],
                     feature_state: None,
                 }).expect("Failed to complete");
 
@@ -707,12 +717,18 @@ speculate! {
 
                 db.complete_session(session_response.session.id, CompleteSessionInput {
                     summary: "First completion".to_string(),
+                    author: "test".to_string(),
+                    files_changed: vec![],
+                    commits: vec![],
                     feature_state: None,
                 }).expect("Failed to complete");
 
                 // Try to complete again
                 let result = db.complete_session(session_response.session.id, CompleteSessionInput {
                     summary: "Second completion".to_string(),
+                    author: "test".to_string(),
+                    files_changed: vec![],
+                    commits: vec![],
                     feature_state: None,
                 });
 
@@ -738,16 +754,19 @@ speculate! {
                 let entry = db.create_history_entry(CreateHistoryInput {
                     feature_id: feature.id,
                     session_id: Some(session_id),
-                    summary: "Implemented login flow".to_string(),
-                    files_changed: vec!["src/auth.rs".to_string(), "src/routes.rs".to_string()],
-                    author: "claude".to_string(),
+                    details: HistoryDetails {
+                        summary: "Implemented login flow".to_string(),
+                        author: "claude".to_string(),
+                        files_changed: vec!["src/auth.rs".to_string(), "src/routes.rs".to_string()],
+                        commits: vec![],
+                    },
                 }).expect("Failed to create history entry");
 
                 assert_eq!(entry.feature_id, feature.id);
                 assert_eq!(entry.session_id, Some(session_id));
-                assert_eq!(entry.summary, "Implemented login flow");
-                assert_eq!(entry.files_changed.len(), 2);
-                assert_eq!(entry.author, "claude");
+                assert_eq!(entry.details.summary, "Implemented login flow");
+                assert_eq!(entry.details.files_changed.len(), 2);
+                assert_eq!(entry.details.author, "claude");
             }
 
             it "creates entry without session_id" {
@@ -763,13 +782,16 @@ speculate! {
                 let entry = db.create_history_entry(CreateHistoryInput {
                     feature_id: feature.id,
                     session_id: None,
-                    summary: "Manual update".to_string(),
-                    files_changed: vec![],
-                    author: "human".to_string(),
+                    details: HistoryDetails {
+                        summary: "Manual update".to_string(),
+                        author: "human".to_string(),
+                        files_changed: vec![],
+                        commits: vec![],
+                    },
                 }).expect("Failed to create history entry");
 
                 assert!(entry.session_id.is_none());
-                assert!(entry.files_changed.is_empty());
+                assert!(entry.details.files_changed.is_empty());
             }
         }
 
@@ -801,24 +823,30 @@ speculate! {
                 db.create_history_entry(CreateHistoryInput {
                     feature_id: feature.id,
                     session_id: None,
-                    summary: "First change".to_string(),
-                    files_changed: vec![],
-                    author: "dev1".to_string(),
+                    details: HistoryDetails {
+                        summary: "First change".to_string(),
+                        author: "dev1".to_string(),
+                        files_changed: vec![],
+                        commits: vec![],
+                    },
                 }).expect("Failed to create");
 
                 db.create_history_entry(CreateHistoryInput {
                     feature_id: feature.id,
                     session_id: None,
-                    summary: "Second change".to_string(),
-                    files_changed: vec![],
-                    author: "dev2".to_string(),
+                    details: HistoryDetails {
+                        summary: "Second change".to_string(),
+                        author: "dev2".to_string(),
+                        files_changed: vec![],
+                        commits: vec![],
+                    },
                 }).expect("Failed to create");
 
                 let history = db.get_feature_history(feature.id).expect("Query failed");
 
                 assert_eq!(history.len(), 2);
-                assert_eq!(history[0].summary, "Second change");
-                assert_eq!(history[1].summary, "First change");
+                assert_eq!(history[0].details.summary, "Second change");
+                assert_eq!(history[1].details.summary, "First change");
             }
 
             it "only returns history for specified feature" {
@@ -842,23 +870,29 @@ speculate! {
                 db.create_history_entry(CreateHistoryInput {
                     feature_id: feature1.id,
                     session_id: None,
-                    summary: "Change to feature 1".to_string(),
-                    files_changed: vec![],
-                    author: "dev".to_string(),
+                    details: HistoryDetails {
+                        summary: "Change to feature 1".to_string(),
+                        author: "dev".to_string(),
+                        files_changed: vec![],
+                        commits: vec![],
+                    },
                 }).expect("Failed to create");
 
                 db.create_history_entry(CreateHistoryInput {
                     feature_id: feature2.id,
                     session_id: None,
-                    summary: "Change to feature 2".to_string(),
-                    files_changed: vec![],
-                    author: "dev".to_string(),
+                    details: HistoryDetails {
+                        summary: "Change to feature 2".to_string(),
+                        author: "dev".to_string(),
+                        files_changed: vec![],
+                        commits: vec![],
+                    },
                 }).expect("Failed to create");
 
                 let history = db.get_feature_history(feature1.id).expect("Query failed");
 
                 assert_eq!(history.len(), 1);
-                assert_eq!(history[0].summary, "Change to feature 1");
+                assert_eq!(history[0].details.summary, "Change to feature 1");
             }
         }
 
@@ -876,9 +910,12 @@ speculate! {
                 db.create_history_entry(CreateHistoryInput {
                     feature_id: feature.id,
                     session_id: None,
-                    summary: "Some work".to_string(),
-                    files_changed: vec![],
-                    author: "dev".to_string(),
+                    details: HistoryDetails {
+                        summary: "Some work".to_string(),
+                        author: "dev".to_string(),
+                        files_changed: vec![],
+                        commits: vec![],
+                    },
                 }).expect("Failed to create");
 
                 db.delete_feature(feature.id).expect("Failed to delete");

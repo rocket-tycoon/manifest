@@ -12,7 +12,8 @@ fn setup() -> TestServer {
 }
 
 async fn create_test_project(server: &TestServer) -> Project {
-    server.post("/api/v1/projects")
+    server
+        .post("/api/v1/projects")
         .json(&CreateProjectInput {
             name: "Test Project".to_string(),
             description: None,
@@ -30,7 +31,9 @@ mod feature_roots {
         let server = setup();
         let project = create_test_project(&server).await;
 
-        let response = server.get(&format!("/api/v1/projects/{}/features/roots", project.id)).await;
+        let response = server
+            .get(&format!("/api/v1/projects/{}/features/roots", project.id))
+            .await;
 
         response.assert_status_ok();
         let features: Vec<Feature> = response.json();
@@ -43,7 +46,8 @@ mod feature_roots {
         let project = create_test_project(&server).await;
 
         // Create root feature
-        let root = server.post(&format!("/api/v1/projects/{}/features", project.id))
+        let root = server
+            .post(&format!("/api/v1/projects/{}/features", project.id))
             .json(&CreateFeatureInput {
                 parent_id: None,
                 title: "Root".to_string(),
@@ -55,7 +59,8 @@ mod feature_roots {
             .json::<Feature>();
 
         // Create child feature
-        server.post(&format!("/api/v1/projects/{}/features", project.id))
+        server
+            .post(&format!("/api/v1/projects/{}/features", project.id))
             .json(&CreateFeatureInput {
                 parent_id: Some(root.id),
                 title: "Child".to_string(),
@@ -65,7 +70,9 @@ mod feature_roots {
             })
             .await;
 
-        let response = server.get(&format!("/api/v1/projects/{}/features/roots", project.id)).await;
+        let response = server
+            .get(&format!("/api/v1/projects/{}/features/roots", project.id))
+            .await;
 
         response.assert_status_ok();
         let features: Vec<Feature> = response.json();
@@ -83,7 +90,8 @@ mod feature_children {
         let server = setup();
         let project = create_test_project(&server).await;
 
-        let feature = server.post(&format!("/api/v1/projects/{}/features", project.id))
+        let feature = server
+            .post(&format!("/api/v1/projects/{}/features", project.id))
             .json(&CreateFeatureInput {
                 parent_id: None,
                 title: "Leaf".to_string(),
@@ -94,7 +102,9 @@ mod feature_children {
             .await
             .json::<Feature>();
 
-        let response = server.get(&format!("/api/v1/features/{}/children", feature.id)).await;
+        let response = server
+            .get(&format!("/api/v1/features/{}/children", feature.id))
+            .await;
 
         response.assert_status_ok();
         let children: Vec<Feature> = response.json();
@@ -106,7 +116,8 @@ mod feature_children {
         let server = setup();
         let project = create_test_project(&server).await;
 
-        let parent = server.post(&format!("/api/v1/projects/{}/features", project.id))
+        let parent = server
+            .post(&format!("/api/v1/projects/{}/features", project.id))
             .json(&CreateFeatureInput {
                 parent_id: None,
                 title: "Parent".to_string(),
@@ -117,7 +128,8 @@ mod feature_children {
             .await
             .json::<Feature>();
 
-        server.post(&format!("/api/v1/projects/{}/features", project.id))
+        server
+            .post(&format!("/api/v1/projects/{}/features", project.id))
             .json(&CreateFeatureInput {
                 parent_id: Some(parent.id),
                 title: "Zebra".to_string(),
@@ -127,7 +139,8 @@ mod feature_children {
             })
             .await;
 
-        server.post(&format!("/api/v1/projects/{}/features", project.id))
+        server
+            .post(&format!("/api/v1/projects/{}/features", project.id))
             .json(&CreateFeatureInput {
                 parent_id: Some(parent.id),
                 title: "Alpha".to_string(),
@@ -137,7 +150,9 @@ mod feature_children {
             })
             .await;
 
-        let response = server.get(&format!("/api/v1/features/{}/children", parent.id)).await;
+        let response = server
+            .get(&format!("/api/v1/features/{}/children", parent.id))
+            .await;
 
         response.assert_status_ok();
         let children: Vec<Feature> = response.json();
@@ -151,7 +166,8 @@ mod feature_children {
         let server = setup();
         let project = create_test_project(&server).await;
 
-        let root = server.post(&format!("/api/v1/projects/{}/features", project.id))
+        let root = server
+            .post(&format!("/api/v1/projects/{}/features", project.id))
             .json(&CreateFeatureInput {
                 parent_id: None,
                 title: "Root".to_string(),
@@ -162,7 +178,8 @@ mod feature_children {
             .await
             .json::<Feature>();
 
-        let child = server.post(&format!("/api/v1/projects/{}/features", project.id))
+        let child = server
+            .post(&format!("/api/v1/projects/{}/features", project.id))
             .json(&CreateFeatureInput {
                 parent_id: Some(root.id),
                 title: "Child".to_string(),
@@ -173,7 +190,8 @@ mod feature_children {
             .await
             .json::<Feature>();
 
-        server.post(&format!("/api/v1/projects/{}/features", project.id))
+        server
+            .post(&format!("/api/v1/projects/{}/features", project.id))
             .json(&CreateFeatureInput {
                 parent_id: Some(child.id),
                 title: "Grandchild".to_string(),
@@ -183,7 +201,9 @@ mod feature_children {
             })
             .await;
 
-        let response = server.get(&format!("/api/v1/features/{}/children", root.id)).await;
+        let response = server
+            .get(&format!("/api/v1/features/{}/children", root.id))
+            .await;
 
         response.assert_status_ok();
         let children: Vec<Feature> = response.json();
@@ -200,7 +220,8 @@ mod feature_hierarchy_create {
         let server = setup();
         let project = create_test_project(&server).await;
 
-        let parent = server.post(&format!("/api/v1/projects/{}/features", project.id))
+        let parent = server
+            .post(&format!("/api/v1/projects/{}/features", project.id))
             .json(&CreateFeatureInput {
                 parent_id: None,
                 title: "Authentication".to_string(),
@@ -211,7 +232,8 @@ mod feature_hierarchy_create {
             .await
             .json::<Feature>();
 
-        let response = server.post(&format!("/api/v1/projects/{}/features", project.id))
+        let response = server
+            .post(&format!("/api/v1/projects/{}/features", project.id))
             .json(&CreateFeatureInput {
                 parent_id: Some(parent.id),
                 title: "Login".to_string(),
@@ -232,7 +254,8 @@ mod feature_hierarchy_create {
         let server = setup();
         let project = create_test_project(&server).await;
 
-        let level0 = server.post(&format!("/api/v1/projects/{}/features", project.id))
+        let level0 = server
+            .post(&format!("/api/v1/projects/{}/features", project.id))
             .json(&CreateFeatureInput {
                 parent_id: None,
                 title: "Authentication".to_string(),
@@ -243,7 +266,8 @@ mod feature_hierarchy_create {
             .await
             .json::<Feature>();
 
-        let level1 = server.post(&format!("/api/v1/projects/{}/features", project.id))
+        let level1 = server
+            .post(&format!("/api/v1/projects/{}/features", project.id))
             .json(&CreateFeatureInput {
                 parent_id: Some(level0.id),
                 title: "OAuth".to_string(),
@@ -254,7 +278,8 @@ mod feature_hierarchy_create {
             .await
             .json::<Feature>();
 
-        let level2 = server.post(&format!("/api/v1/projects/{}/features", project.id))
+        let level2 = server
+            .post(&format!("/api/v1/projects/{}/features", project.id))
             .json(&CreateFeatureInput {
                 parent_id: Some(level1.id),
                 title: "Google".to_string(),
@@ -282,7 +307,8 @@ mod feature_cascade_delete {
         let server = setup();
         let project = create_test_project(&server).await;
 
-        let parent = server.post(&format!("/api/v1/projects/{}/features", project.id))
+        let parent = server
+            .post(&format!("/api/v1/projects/{}/features", project.id))
             .json(&CreateFeatureInput {
                 parent_id: None,
                 title: "Parent".to_string(),
@@ -293,7 +319,8 @@ mod feature_cascade_delete {
             .await
             .json::<Feature>();
 
-        let child = server.post(&format!("/api/v1/projects/{}/features", project.id))
+        let child = server
+            .post(&format!("/api/v1/projects/{}/features", project.id))
             .json(&CreateFeatureInput {
                 parent_id: Some(parent.id),
                 title: "Child".to_string(),
@@ -305,12 +332,14 @@ mod feature_cascade_delete {
             .json::<Feature>();
 
         // Delete parent
-        server.delete(&format!("/api/v1/features/{}", parent.id))
+        server
+            .delete(&format!("/api/v1/features/{}", parent.id))
             .await
             .assert_status(StatusCode::NO_CONTENT);
 
         // Child should be gone
-        server.get(&format!("/api/v1/features/{}", child.id))
+        server
+            .get(&format!("/api/v1/features/{}", child.id))
             .await
             .assert_status_not_found();
     }
@@ -324,7 +353,8 @@ mod feature_history {
         let server = setup();
         let project = create_test_project(&server).await;
 
-        let feature = server.post(&format!("/api/v1/projects/{}/features", project.id))
+        let feature = server
+            .post(&format!("/api/v1/projects/{}/features", project.id))
             .json(&CreateFeatureInput {
                 parent_id: None,
                 title: "New Feature".to_string(),
@@ -335,7 +365,9 @@ mod feature_history {
             .await
             .json::<Feature>();
 
-        let response = server.get(&format!("/api/v1/features/{}/history", feature.id)).await;
+        let response = server
+            .get(&format!("/api/v1/features/{}/history", feature.id))
+            .await;
 
         response.assert_status_ok();
         let history: Vec<FeatureHistory> = response.json();
@@ -351,7 +383,8 @@ mod session_leaf_validation {
         let server = setup();
         let project = create_test_project(&server).await;
 
-        let leaf = server.post(&format!("/api/v1/projects/{}/features", project.id))
+        let leaf = server
+            .post(&format!("/api/v1/projects/{}/features", project.id))
             .json(&CreateFeatureInput {
                 parent_id: None,
                 title: "Leaf Feature".to_string(),
@@ -362,7 +395,8 @@ mod session_leaf_validation {
             .await
             .json::<Feature>();
 
-        let response = server.post("/api/v1/sessions")
+        let response = server
+            .post("/api/v1/sessions")
             .json(&CreateSessionInput {
                 feature_id: leaf.id,
                 goal: "Implement feature".to_string(),
@@ -378,7 +412,8 @@ mod session_leaf_validation {
         let server = setup();
         let project = create_test_project(&server).await;
 
-        let parent = server.post(&format!("/api/v1/projects/{}/features", project.id))
+        let parent = server
+            .post(&format!("/api/v1/projects/{}/features", project.id))
             .json(&CreateFeatureInput {
                 parent_id: None,
                 title: "Parent".to_string(),
@@ -389,7 +424,8 @@ mod session_leaf_validation {
             .await
             .json::<Feature>();
 
-        server.post(&format!("/api/v1/projects/{}/features", project.id))
+        server
+            .post(&format!("/api/v1/projects/{}/features", project.id))
             .json(&CreateFeatureInput {
                 parent_id: Some(parent.id),
                 title: "Child".to_string(),
@@ -399,7 +435,8 @@ mod session_leaf_validation {
             })
             .await;
 
-        let response = server.post("/api/v1/sessions")
+        let response = server
+            .post("/api/v1/sessions")
             .json(&CreateSessionInput {
                 feature_id: parent.id,
                 goal: "Implement feature".to_string(),
@@ -421,7 +458,8 @@ mod session_completion {
         let server = setup();
         let project = create_test_project(&server).await;
 
-        let feature = server.post(&format!("/api/v1/projects/{}/features", project.id))
+        let feature = server
+            .post(&format!("/api/v1/projects/{}/features", project.id))
             .json(&CreateFeatureInput {
                 parent_id: None,
                 title: "Feature".to_string(),
@@ -432,7 +470,8 @@ mod session_completion {
             .await
             .json::<Feature>();
 
-        let session = server.post("/api/v1/sessions")
+        let session = server
+            .post("/api/v1/sessions")
             .json(&CreateSessionInput {
                 feature_id: feature.id,
                 goal: "Implement feature".to_string(),
@@ -446,9 +485,13 @@ mod session_completion {
             .await
             .json::<SessionResponse>();
 
-        let response = server.post(&format!("/api/v1/sessions/{}/complete", session.session.id))
+        let response = server
+            .post(&format!("/api/v1/sessions/{}/complete", session.session.id))
             .json(&CompleteSessionInput {
                 summary: "Feature implemented".to_string(),
+                author: "test".to_string(),
+                files_changed: vec![],
+                commits: vec![],
                 feature_state: None,
             })
             .await;
@@ -457,7 +500,7 @@ mod session_completion {
         let result: SessionCompletionResult = response.json();
         assert_eq!(result.session.status, SessionStatus::Completed);
         assert!(result.session.completed_at.is_some());
-        assert_eq!(result.history_entry.summary, "Feature implemented");
+        assert_eq!(result.history_entry.details.summary, "Feature implemented");
     }
 
     #[tokio::test]
@@ -465,7 +508,8 @@ mod session_completion {
         let server = setup();
         let project = create_test_project(&server).await;
 
-        let feature = server.post(&format!("/api/v1/projects/{}/features", project.id))
+        let feature = server
+            .post(&format!("/api/v1/projects/{}/features", project.id))
             .json(&CreateFeatureInput {
                 parent_id: None,
                 title: "Feature".to_string(),
@@ -476,7 +520,8 @@ mod session_completion {
             .await
             .json::<Feature>();
 
-        let session = server.post("/api/v1/sessions")
+        let session = server
+            .post("/api/v1/sessions")
             .json(&CreateSessionInput {
                 feature_id: feature.id,
                 goal: "Goal".to_string(),
@@ -485,18 +530,24 @@ mod session_completion {
             .await
             .json::<SessionResponse>();
 
-        server.post(&format!("/api/v1/sessions/{}/complete", session.session.id))
+        server
+            .post(&format!("/api/v1/sessions/{}/complete", session.session.id))
             .json(&CompleteSessionInput {
                 summary: "Work completed".to_string(),
+                author: "test".to_string(),
+                files_changed: vec![],
+                commits: vec![],
                 feature_state: None,
             })
             .await;
 
         // Check history was created
-        let response = server.get(&format!("/api/v1/features/{}/history", feature.id)).await;
+        let response = server
+            .get(&format!("/api/v1/features/{}/history", feature.id))
+            .await;
         let history: Vec<FeatureHistory> = response.json();
         assert_eq!(history.len(), 1);
-        assert_eq!(history[0].summary, "Work completed");
+        assert_eq!(history[0].details.summary, "Work completed");
     }
 
     #[tokio::test]
@@ -504,9 +555,13 @@ mod session_completion {
         let server = setup();
         let fake_id = uuid::Uuid::new_v4();
 
-        let response = server.post(&format!("/api/v1/sessions/{}/complete", fake_id))
+        let response = server
+            .post(&format!("/api/v1/sessions/{}/complete", fake_id))
             .json(&CompleteSessionInput {
                 summary: "Done".to_string(),
+                author: "test".to_string(),
+                files_changed: vec![],
+                commits: vec![],
                 feature_state: None,
             })
             .await;
@@ -514,120 +569,3 @@ mod session_completion {
         response.assert_status_not_found();
     }
 }
-
-mod implementation_notes {
-    use super::*;
-
-    async fn create_task_for_test(server: &TestServer) -> (Project, Feature, SessionResponse) {
-        let project = create_test_project(server).await;
-
-        let feature = server.post(&format!("/api/v1/projects/{}/features", project.id))
-            .json(&CreateFeatureInput {
-                parent_id: None,
-                title: "Test Feature".to_string(),
-                state: None,
-                story: None,
-                details: None,
-            })
-            .await
-            .json::<Feature>();
-
-        let session = server.post("/api/v1/sessions")
-            .json(&CreateSessionInput {
-                feature_id: feature.id,
-                goal: "Test goal".to_string(),
-                tasks: vec![CreateTaskInput {
-                    parent_id: None,
-                    title: "Test Task".to_string(),
-                    scope: "Test scope".to_string(),
-                    agent_type: AgentType::Claude,
-                }],
-            })
-            .await
-            .json::<SessionResponse>();
-
-        (project, feature, session)
-    }
-
-    #[tokio::test]
-    async fn returns_empty_list_when_no_notes() {
-        let server = setup();
-        let (_, _, session) = create_task_for_test(&server).await;
-        let task_id = session.tasks[0].id;
-
-        let response = server.get(&format!("/api/v1/tasks/{}/notes", task_id)).await;
-
-        response.assert_status_ok();
-        let notes: Vec<ImplementationNote> = response.json();
-        assert!(notes.is_empty());
-    }
-
-    #[tokio::test]
-    async fn creates_note_for_task() {
-        let server = setup();
-        let (_, _, session) = create_task_for_test(&server).await;
-        let task_id = session.tasks[0].id;
-
-        let response = server.post(&format!("/api/v1/tasks/{}/notes", task_id))
-            .json(&CreateImplementationNoteInput {
-                content: "Implemented login flow using JWT".to_string(),
-                files_changed: vec!["src/auth.rs".to_string()],
-            })
-            .await;
-
-        response.assert_status(StatusCode::CREATED);
-        let note: ImplementationNote = response.json();
-        assert_eq!(note.content, "Implemented login flow using JWT");
-        assert_eq!(note.files_changed, vec!["src/auth.rs"]);
-        assert_eq!(note.task_id, Some(task_id));
-    }
-
-    #[tokio::test]
-    async fn lists_notes_for_task() {
-        let server = setup();
-        let (_, _, session) = create_task_for_test(&server).await;
-        let task_id = session.tasks[0].id;
-
-        server.post(&format!("/api/v1/tasks/{}/notes", task_id))
-            .json(&CreateImplementationNoteInput {
-                content: "First note".to_string(),
-                files_changed: vec![],
-            })
-            .await;
-
-        server.post(&format!("/api/v1/tasks/{}/notes", task_id))
-            .json(&CreateImplementationNoteInput {
-                content: "Second note".to_string(),
-                files_changed: vec![],
-            })
-            .await;
-
-        let response = server.get(&format!("/api/v1/tasks/{}/notes", task_id)).await;
-
-        response.assert_status_ok();
-        let notes: Vec<ImplementationNote> = response.json();
-        assert_eq!(notes.len(), 2);
-    }
-
-    #[tokio::test]
-    async fn lists_notes_for_feature() {
-        let server = setup();
-        let (_, feature, session) = create_task_for_test(&server).await;
-        let task_id = session.tasks[0].id;
-
-        server.post(&format!("/api/v1/tasks/{}/notes", task_id))
-            .json(&CreateImplementationNoteInput {
-                content: "Note for feature".to_string(),
-                files_changed: vec![],
-            })
-            .await;
-
-        let response = server.get(&format!("/api/v1/features/{}/notes", feature.id)).await;
-
-        response.assert_status_ok();
-        let notes: Vec<ImplementationNote> = response.json();
-        assert_eq!(notes.len(), 1);
-        assert_eq!(notes[0].feature_id, Some(feature.id));
-    }
-}
-
