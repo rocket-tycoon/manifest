@@ -2,6 +2,8 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+**Coding Standards**: Follow `coding-guidelines.md` for all Rust code.
+
 ## Overview
 
 RocketManifest (formerly "Legion") is an MCP server for living feature documentation. It was extracted from the RocketCrew VSCode extension to provide a standalone backend for technical product management.
@@ -21,13 +23,11 @@ Features are not work items to be closed. They are living descriptions that evol
 ### MCP Server Purpose
 
 AI agents access features through deterministic MCP tools (not grep):
-- `get_task_context` - Get assigned task with feature context and criteria
-- `mark_criterion_complete` - Check off requirements
-- `report_blocker` - Report blocked criteria
+- `get_task_context` - Get assigned task with feature context
 - `add_implementation_note` - Document implementation details
-- `complete_task` - Signal task completion
+- `complete_task` - Mark task as complete
 
-Agents are scoped to their assigned task and report progress back.
+Agents are scoped to their assigned task and report progress back. Tasks are small units of work (1-3 story points). AI agents manage their own internal punch lists without RocketManifest tracking granular sub-items.
 
 ## Build & Test
 
@@ -59,7 +59,7 @@ speculate! {
 }
 ```
 
-Test files: `tests/db_spec.rs`, `tests/api_spec.rs` (39 tests total)
+Test files: `tests/db_spec.rs`, `tests/api_spec.rs` (59 tests total)
 
 ## Architecture
 
@@ -93,21 +93,20 @@ Authentication/                 <- feature node with context
 ```
 
 **Permanent entities:**
-- **Feature**: Self-referential tree via `parent_id`. Any node can have content and criteria. Only **leaf nodes** can have sessions.
-- **AcceptanceCriterion**: Belongs to Feature, tracks completion status and verification type (manual/test)
-- **FeatureHistory**: Append-only log of implementation sessions (like `git log` for a feature). Records what was done during each session, which criteria were completed, and links to git commits. This is NOT feature versioning—the feature content itself is mutable. History answers "what work was done on this feature and when?"
+- **Feature**: Self-referential tree via `parent_id`. Any node can have content. Only **leaf nodes** can have sessions.
+- **FeatureHistory**: Append-only log of implementation sessions (like `git log` for a feature). Records what was done during each session and links to git commits. This is NOT feature versioning—the feature content itself is mutable. History answers "what work was done on this feature and when?"
+- **ImplementationNote**: Notes attached to features or tasks documenting implementation details.
 
 **Ephemeral entities (exist only during active work):**
 - **Session**: One active session per feature at a time. When completed, tasks are squashed into a `feature_history` entry and deleted.
-- **Task**: Work unit within Session, assigned to an agent (claude/gemini/codex). Deleted when session completes.
+- **Task**: Work unit within Session, assigned to an agent (claude/gemini/codex). Self-referential via `parent_id` for optional sub-tasks. Deleted when session completes.
 
 ```
 Session lifecycle:
 1. Create session on leaf feature
-2. Create tasks, agents work on criteria
+2. Create tasks, agents work
 3. Session completes:
-   └─> Summary of work + completed criteria → feature_history entry
-   └─> Link to git commit(s) recorded
+   └─> Summary of work → feature_history entry
    └─> Task records deleted
    └─> Session marked completed
 ```
@@ -117,14 +116,17 @@ Key methods: `get_root_features()`, `get_children(id)`, `is_leaf(id)`
 ### API Routes
 
 All routes prefixed with `/api/v1`:
+- Projects: CRUD at `/projects`, `/projects/{id}`
+  - `/projects/{id}/directories` - GET/POST project directories
+  - `/projects/{id}/features` - GET/POST features for project
+  - `/projects/{id}/features/roots` - GET root features
 - Features: CRUD at `/features`, `/features/{id}`
-  - `/features/roots` - GET root features (no parent)
   - `/features/{id}/children` - GET direct children
-  - `/features/{id}/criteria` - GET/POST criteria
+  - `/features/{id}/history` - GET feature history
+  - `/features/{id}/notes` - GET implementation notes
 - Sessions: POST `/sessions`, GET `/sessions/{id}`, `/sessions/{id}/status`
   - Only allowed on leaf features (returns 500 if feature has children)
-- Tasks: GET/PUT `/tasks/{id}`
-- Criteria: PUT `/criteria/{id}`
+- Tasks: GET/PUT `/tasks/{id}`, `/tasks/{id}/notes` - GET/POST notes
 
 ### Database
 
@@ -136,7 +138,7 @@ All routes prefixed with `/api/v1`:
 
 - Enums use manual `as_str()`/`from_str()` for DB serialization (not derive macros)
 - `Result<Option<T>>` pattern for get operations (None = not found, Err = DB error)
-- Dynamic SQL building for partial updates (UpdateTaskInput, UpdateCriterionInput)
+- Dynamic SQL building for partial updates (UpdateTaskInput, UpdateFeatureInput)
 - Database wrapped in `Arc<Mutex<Connection>>` for thread-safe sharing
 
 ## Related Projects

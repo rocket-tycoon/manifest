@@ -11,14 +11,25 @@ fn setup() -> TestServer {
     TestServer::new(app).expect("Failed to create test server")
 }
 
+async fn create_test_project(server: &TestServer) -> Project {
+    server.post("/api/v1/projects")
+        .json(&CreateProjectInput {
+            name: "Test Project".to_string(),
+            description: None,
+        })
+        .await
+        .json::<Project>()
+}
+
 mod feature_roots {
     use super::*;
 
     #[tokio::test]
     async fn returns_empty_list_when_no_features_exist() {
         let server = setup();
+        let project = create_test_project(&server).await;
 
-        let response = server.get("/api/v1/features/roots").await;
+        let response = server.get(&format!("/api/v1/projects/{}/features/roots", project.id)).await;
 
         response.assert_status_ok();
         let features: Vec<Feature> = response.json();
@@ -28,9 +39,10 @@ mod feature_roots {
     #[tokio::test]
     async fn returns_only_root_features() {
         let server = setup();
+        let project = create_test_project(&server).await;
 
         // Create root feature
-        let root = server.post("/api/v1/features")
+        let root = server.post(&format!("/api/v1/projects/{}/features", project.id))
             .json(&CreateFeatureInput {
                 parent_id: None,
                 title: "Root".to_string(),
@@ -42,7 +54,7 @@ mod feature_roots {
             .json::<Feature>();
 
         // Create child feature
-        server.post("/api/v1/features")
+        server.post(&format!("/api/v1/projects/{}/features", project.id))
             .json(&CreateFeatureInput {
                 parent_id: Some(root.id),
                 title: "Child".to_string(),
@@ -52,7 +64,7 @@ mod feature_roots {
             })
             .await;
 
-        let response = server.get("/api/v1/features/roots").await;
+        let response = server.get(&format!("/api/v1/projects/{}/features/roots", project.id)).await;
 
         response.assert_status_ok();
         let features: Vec<Feature> = response.json();
@@ -68,8 +80,9 @@ mod feature_children {
     #[tokio::test]
     async fn returns_empty_list_when_feature_has_no_children() {
         let server = setup();
+        let project = create_test_project(&server).await;
 
-        let feature = server.post("/api/v1/features")
+        let feature = server.post(&format!("/api/v1/projects/{}/features", project.id))
             .json(&CreateFeatureInput {
                 parent_id: None,
                 title: "Leaf".to_string(),
@@ -90,8 +103,9 @@ mod feature_children {
     #[tokio::test]
     async fn returns_direct_children_ordered_by_title() {
         let server = setup();
+        let project = create_test_project(&server).await;
 
-        let parent = server.post("/api/v1/features")
+        let parent = server.post(&format!("/api/v1/projects/{}/features", project.id))
             .json(&CreateFeatureInput {
                 parent_id: None,
                 title: "Parent".to_string(),
@@ -102,7 +116,7 @@ mod feature_children {
             .await
             .json::<Feature>();
 
-        server.post("/api/v1/features")
+        server.post(&format!("/api/v1/projects/{}/features", project.id))
             .json(&CreateFeatureInput {
                 parent_id: Some(parent.id),
                 title: "Zebra".to_string(),
@@ -112,7 +126,7 @@ mod feature_children {
             })
             .await;
 
-        server.post("/api/v1/features")
+        server.post(&format!("/api/v1/projects/{}/features", project.id))
             .json(&CreateFeatureInput {
                 parent_id: Some(parent.id),
                 title: "Alpha".to_string(),
@@ -134,8 +148,9 @@ mod feature_children {
     #[tokio::test]
     async fn does_not_return_grandchildren() {
         let server = setup();
+        let project = create_test_project(&server).await;
 
-        let root = server.post("/api/v1/features")
+        let root = server.post(&format!("/api/v1/projects/{}/features", project.id))
             .json(&CreateFeatureInput {
                 parent_id: None,
                 title: "Root".to_string(),
@@ -146,7 +161,7 @@ mod feature_children {
             .await
             .json::<Feature>();
 
-        let child = server.post("/api/v1/features")
+        let child = server.post(&format!("/api/v1/projects/{}/features", project.id))
             .json(&CreateFeatureInput {
                 parent_id: Some(root.id),
                 title: "Child".to_string(),
@@ -157,7 +172,7 @@ mod feature_children {
             .await
             .json::<Feature>();
 
-        server.post("/api/v1/features")
+        server.post(&format!("/api/v1/projects/{}/features", project.id))
             .json(&CreateFeatureInput {
                 parent_id: Some(child.id),
                 title: "Grandchild".to_string(),
@@ -182,8 +197,9 @@ mod feature_hierarchy_create {
     #[tokio::test]
     async fn creates_child_feature_with_parent_id() {
         let server = setup();
+        let project = create_test_project(&server).await;
 
-        let parent = server.post("/api/v1/features")
+        let parent = server.post(&format!("/api/v1/projects/{}/features", project.id))
             .json(&CreateFeatureInput {
                 parent_id: None,
                 title: "Authentication".to_string(),
@@ -194,7 +210,7 @@ mod feature_hierarchy_create {
             .await
             .json::<Feature>();
 
-        let response = server.post("/api/v1/features")
+        let response = server.post(&format!("/api/v1/projects/{}/features", project.id))
             .json(&CreateFeatureInput {
                 parent_id: Some(parent.id),
                 title: "Login".to_string(),
@@ -213,8 +229,9 @@ mod feature_hierarchy_create {
     #[tokio::test]
     async fn creates_deeply_nested_features() {
         let server = setup();
+        let project = create_test_project(&server).await;
 
-        let level0 = server.post("/api/v1/features")
+        let level0 = server.post(&format!("/api/v1/projects/{}/features", project.id))
             .json(&CreateFeatureInput {
                 parent_id: None,
                 title: "Authentication".to_string(),
@@ -225,7 +242,7 @@ mod feature_hierarchy_create {
             .await
             .json::<Feature>();
 
-        let level1 = server.post("/api/v1/features")
+        let level1 = server.post(&format!("/api/v1/projects/{}/features", project.id))
             .json(&CreateFeatureInput {
                 parent_id: Some(level0.id),
                 title: "OAuth".to_string(),
@@ -236,7 +253,7 @@ mod feature_hierarchy_create {
             .await
             .json::<Feature>();
 
-        let level2 = server.post("/api/v1/features")
+        let level2 = server.post(&format!("/api/v1/projects/{}/features", project.id))
             .json(&CreateFeatureInput {
                 parent_id: Some(level1.id),
                 title: "Google".to_string(),
@@ -262,8 +279,9 @@ mod feature_cascade_delete {
     #[tokio::test]
     async fn deletes_children_when_parent_is_deleted() {
         let server = setup();
+        let project = create_test_project(&server).await;
 
-        let parent = server.post("/api/v1/features")
+        let parent = server.post(&format!("/api/v1/projects/{}/features", project.id))
             .json(&CreateFeatureInput {
                 parent_id: None,
                 title: "Parent".to_string(),
@@ -274,7 +292,7 @@ mod feature_cascade_delete {
             .await
             .json::<Feature>();
 
-        let child = server.post("/api/v1/features")
+        let child = server.post(&format!("/api/v1/projects/{}/features", project.id))
             .json(&CreateFeatureInput {
                 parent_id: Some(parent.id),
                 title: "Child".to_string(),
@@ -303,8 +321,9 @@ mod feature_history {
     #[tokio::test]
     async fn returns_empty_list_when_no_history() {
         let server = setup();
+        let project = create_test_project(&server).await;
 
-        let feature = server.post("/api/v1/features")
+        let feature = server.post(&format!("/api/v1/projects/{}/features", project.id))
             .json(&CreateFeatureInput {
                 parent_id: None,
                 title: "New Feature".to_string(),
@@ -329,8 +348,9 @@ mod session_leaf_validation {
     #[tokio::test]
     async fn allows_session_creation_on_leaf_feature() {
         let server = setup();
+        let project = create_test_project(&server).await;
 
-        let leaf = server.post("/api/v1/features")
+        let leaf = server.post(&format!("/api/v1/projects/{}/features", project.id))
             .json(&CreateFeatureInput {
                 parent_id: None,
                 title: "Leaf Feature".to_string(),
@@ -355,8 +375,9 @@ mod session_leaf_validation {
     #[tokio::test]
     async fn rejects_session_creation_on_non_leaf_feature() {
         let server = setup();
+        let project = create_test_project(&server).await;
 
-        let parent = server.post("/api/v1/features")
+        let parent = server.post(&format!("/api/v1/projects/{}/features", project.id))
             .json(&CreateFeatureInput {
                 parent_id: None,
                 title: "Parent".to_string(),
@@ -367,7 +388,7 @@ mod session_leaf_validation {
             .await
             .json::<Feature>();
 
-        server.post("/api/v1/features")
+        server.post(&format!("/api/v1/projects/{}/features", project.id))
             .json(&CreateFeatureInput {
                 parent_id: Some(parent.id),
                 title: "Child".to_string(),
@@ -397,8 +418,9 @@ mod session_completion {
     #[tokio::test]
     async fn completes_session_and_returns_result() {
         let server = setup();
+        let project = create_test_project(&server).await;
 
-        let feature = server.post("/api/v1/features")
+        let feature = server.post(&format!("/api/v1/projects/{}/features", project.id))
             .json(&CreateFeatureInput {
                 parent_id: None,
                 title: "Feature".to_string(),
@@ -414,6 +436,7 @@ mod session_completion {
                 feature_id: feature.id,
                 goal: "Implement feature".to_string(),
                 tasks: vec![CreateTaskInput {
+                    parent_id: None,
                     title: "Task".to_string(),
                     scope: "Scope".to_string(),
                     agent_type: AgentType::Claude,
@@ -438,8 +461,9 @@ mod session_completion {
     #[tokio::test]
     async fn creates_history_entry_on_completion() {
         let server = setup();
+        let project = create_test_project(&server).await;
 
-        let feature = server.post("/api/v1/features")
+        let feature = server.post(&format!("/api/v1/projects/{}/features", project.id))
             .json(&CreateFeatureInput {
                 parent_id: None,
                 title: "Feature".to_string(),
@@ -490,8 +514,10 @@ mod session_completion {
 mod implementation_notes {
     use super::*;
 
-    async fn create_task_for_test(server: &TestServer) -> (Feature, SessionResponse) {
-        let feature = server.post("/api/v1/features")
+    async fn create_task_for_test(server: &TestServer) -> (Project, Feature, SessionResponse) {
+        let project = create_test_project(server).await;
+
+        let feature = server.post(&format!("/api/v1/projects/{}/features", project.id))
             .json(&CreateFeatureInput {
                 parent_id: None,
                 title: "Test Feature".to_string(),
@@ -507,6 +533,7 @@ mod implementation_notes {
                 feature_id: feature.id,
                 goal: "Test goal".to_string(),
                 tasks: vec![CreateTaskInput {
+                    parent_id: None,
                     title: "Test Task".to_string(),
                     scope: "Test scope".to_string(),
                     agent_type: AgentType::Claude,
@@ -515,13 +542,13 @@ mod implementation_notes {
             .await
             .json::<SessionResponse>();
 
-        (feature, session)
+        (project, feature, session)
     }
 
     #[tokio::test]
     async fn returns_empty_list_when_no_notes() {
         let server = setup();
-        let (_, session) = create_task_for_test(&server).await;
+        let (_, _, session) = create_task_for_test(&server).await;
         let task_id = session.tasks[0].id;
 
         let response = server.get(&format!("/api/v1/tasks/{}/notes", task_id)).await;
@@ -534,7 +561,7 @@ mod implementation_notes {
     #[tokio::test]
     async fn creates_note_for_task() {
         let server = setup();
-        let (_, session) = create_task_for_test(&server).await;
+        let (_, _, session) = create_task_for_test(&server).await;
         let task_id = session.tasks[0].id;
 
         let response = server.post(&format!("/api/v1/tasks/{}/notes", task_id))
@@ -554,7 +581,7 @@ mod implementation_notes {
     #[tokio::test]
     async fn lists_notes_for_task() {
         let server = setup();
-        let (_, session) = create_task_for_test(&server).await;
+        let (_, _, session) = create_task_for_test(&server).await;
         let task_id = session.tasks[0].id;
 
         server.post(&format!("/api/v1/tasks/{}/notes", task_id))
@@ -581,7 +608,7 @@ mod implementation_notes {
     #[tokio::test]
     async fn lists_notes_for_feature() {
         let server = setup();
-        let (feature, session) = create_task_for_test(&server).await;
+        let (_, feature, session) = create_task_for_test(&server).await;
         let task_id = session.tasks[0].id;
 
         server.post(&format!("/api/v1/tasks/{}/notes", task_id))
@@ -600,161 +627,3 @@ mod implementation_notes {
     }
 }
 
-mod task_criteria {
-    use super::*;
-
-    async fn create_task_for_test(server: &TestServer) -> (Feature, SessionResponse) {
-        let feature = server.post("/api/v1/features")
-            .json(&CreateFeatureInput {
-                parent_id: None,
-                title: "Test Feature".to_string(),
-                state: None,
-                story: None,
-                details: None,
-            })
-            .await
-            .json::<Feature>();
-
-        let session = server.post("/api/v1/sessions")
-            .json(&CreateSessionInput {
-                feature_id: feature.id,
-                goal: "Test goal".to_string(),
-                tasks: vec![CreateTaskInput {
-                    title: "Test Task".to_string(),
-                    scope: "Test scope".to_string(),
-                    agent_type: AgentType::Claude,
-                }],
-            })
-            .await
-            .json::<SessionResponse>();
-
-        (feature, session)
-    }
-
-    #[tokio::test]
-    async fn returns_empty_list_when_no_criteria() {
-        let server = setup();
-        let (_, session) = create_task_for_test(&server).await;
-        let task_id = session.tasks[0].id;
-
-        let response = server.get(&format!("/api/v1/tasks/{}/criteria", task_id)).await;
-
-        response.assert_status_ok();
-        let criteria: Vec<Criterion> = response.json();
-        assert!(criteria.is_empty());
-    }
-
-    #[tokio::test]
-    async fn creates_criterion_for_task() {
-        let server = setup();
-        let (_, session) = create_task_for_test(&server).await;
-        let task_id = session.tasks[0].id;
-
-        let response = server.post(&format!("/api/v1/tasks/{}/criteria", task_id))
-            .json(&CreateCriterionInput {
-                description: "User can login".to_string(),
-                verification: None,
-                test_file: None,
-            })
-            .await;
-
-        response.assert_status(StatusCode::CREATED);
-        let criterion: Criterion = response.json();
-        assert_eq!(criterion.description, "User can login");
-        assert_eq!(criterion.status, CriterionStatus::Pending);
-        assert_eq!(criterion.verification, VerificationType::Manual);
-    }
-
-    #[tokio::test]
-    async fn lists_criteria_for_task() {
-        let server = setup();
-        let (_, session) = create_task_for_test(&server).await;
-        let task_id = session.tasks[0].id;
-
-        server.post(&format!("/api/v1/tasks/{}/criteria", task_id))
-            .json(&CreateCriterionInput {
-                description: "First criterion".to_string(),
-                verification: None,
-                test_file: None,
-            })
-            .await;
-
-        server.post(&format!("/api/v1/tasks/{}/criteria", task_id))
-            .json(&CreateCriterionInput {
-                description: "Second criterion".to_string(),
-                verification: None,
-                test_file: None,
-            })
-            .await;
-
-        let response = server.get(&format!("/api/v1/tasks/{}/criteria", task_id)).await;
-
-        response.assert_status_ok();
-        let criteria: Vec<Criterion> = response.json();
-        assert_eq!(criteria.len(), 2);
-    }
-
-    #[tokio::test]
-    async fn updates_criterion_status() {
-        let server = setup();
-        let (_, session) = create_task_for_test(&server).await;
-        let task_id = session.tasks[0].id;
-
-        let criterion = server.post(&format!("/api/v1/tasks/{}/criteria", task_id))
-            .json(&CreateCriterionInput {
-                description: "Criterion".to_string(),
-                verification: None,
-                test_file: None,
-            })
-            .await
-            .json::<Criterion>();
-
-        let response = server.put(&format!("/api/v1/criteria/{}", criterion.id))
-            .json(&UpdateCriterionInput {
-                status: Some(CriterionStatus::Complete),
-                blocked_reason: None,
-            })
-            .await;
-
-        response.assert_status_ok();
-    }
-
-    #[tokio::test]
-    async fn marks_criterion_as_blocked_with_reason() {
-        let server = setup();
-        let (_, session) = create_task_for_test(&server).await;
-        let task_id = session.tasks[0].id;
-
-        let criterion = server.post(&format!("/api/v1/tasks/{}/criteria", task_id))
-            .json(&CreateCriterionInput {
-                description: "Criterion".to_string(),
-                verification: None,
-                test_file: None,
-            })
-            .await
-            .json::<Criterion>();
-
-        server.put(&format!("/api/v1/criteria/{}", criterion.id))
-            .json(&UpdateCriterionInput {
-                status: Some(CriterionStatus::Blocked),
-                blocked_reason: Some("Missing API key".to_string()),
-            })
-            .await
-            .assert_status_ok();
-    }
-
-    #[tokio::test]
-    async fn returns_not_found_for_nonexistent_criterion() {
-        let server = setup();
-        let fake_id = uuid::Uuid::new_v4();
-
-        let response = server.put(&format!("/api/v1/criteria/{}", fake_id))
-            .json(&UpdateCriterionInput {
-                status: Some(CriterionStatus::Complete),
-                blocked_reason: None,
-            })
-            .await;
-
-        response.assert_status_not_found();
-    }
-}

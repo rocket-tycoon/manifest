@@ -6,6 +6,7 @@ use uuid::Uuid;
 pub struct Task {
     pub id: Uuid,
     pub session_id: Uuid,
+    pub parent_id: Option<Uuid>,
     pub title: String,
     pub scope: String,
     pub status: TaskStatus,
@@ -74,6 +75,7 @@ impl AgentType {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateTaskInput {
+    pub parent_id: Option<Uuid>,
     pub title: String,
     pub scope: String,
     pub agent_type: AgentType,

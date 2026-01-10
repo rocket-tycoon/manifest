@@ -39,12 +39,8 @@ pub fn create_router(db: Database) -> Router {
         // Tasks
         .route("/tasks/{id}", get(handlers::get_task))
         .route("/tasks/{id}", put(handlers::update_task))
-        .route("/tasks/{id}/criteria", get(handlers::list_task_criteria))
-        .route("/tasks/{id}/criteria", post(handlers::create_criterion))
         .route("/tasks/{id}/notes", get(handlers::list_task_notes))
         .route("/tasks/{id}/notes", post(handlers::create_task_note))
-        // Criteria
-        .route("/criteria/{id}", put(handlers::update_criterion))
         // Health
         .route("/health", get(handlers::health));
 

@@ -296,37 +296,3 @@ pub async fn create_task_note(
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
 }
 
-// ============================================================
-// Criteria
-// ============================================================
-
-pub async fn list_task_criteria(
-    State(db): State<Database>,
-    Path(task_id): Path<Uuid>,
-) -> Result<Json<Vec<Criterion>>, (StatusCode, String)> {
-    db.get_criteria_by_task(task_id)
-        .map(Json)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
-}
-
-pub async fn create_criterion(
-    State(db): State<Database>,
-    Path(task_id): Path<Uuid>,
-    Json(input): Json<CreateCriterionInput>,
-) -> Result<(StatusCode, Json<Criterion>), (StatusCode, String)> {
-    db.create_criterion(task_id, input)
-        .map(|c| (StatusCode::CREATED, Json(c)))
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
-}
-
-pub async fn update_criterion(
-    State(db): State<Database>,
-    Path(id): Path<Uuid>,
-    Json(input): Json<UpdateCriterionInput>,
-) -> Result<StatusCode, (StatusCode, String)> {
-    if db.update_criterion(id, input).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))? {
-        Ok(StatusCode::OK)
-    } else {
-        Err((StatusCode::NOT_FOUND, "Criterion not found".to_string()))
-    }
-}

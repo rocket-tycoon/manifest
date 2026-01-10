@@ -16,12 +16,8 @@ legion-server/
 │   ├── lib.rs               # Library root
 │   ├── config.rs            # Configuration loading
 │   ├── db/
-│   │   ├── mod.rs
-│   │   ├── schema.rs        # SQL schema & migrations
-│   │   ├── feature.rs       # Feature CRUD
-│   │   ├── criterion.rs     # Acceptance criteria CRUD
-│   │   ├── session.rs       # Session CRUD
-│   │   └── task.rs          # Task CRUD
+│   │   ├── mod.rs           # Database wrapper with all CRUD operations
+│   │   └── schema.rs        # SQL schema (embedded)
 │   ├── api/
 │   │   ├── mod.rs
 │   │   ├── routes.rs        # HTTP route definitions
@@ -38,7 +34,9 @@ legion-server/
 │   └── models/
 │       ├── mod.rs
 │       ├── feature.rs
-│       ├── criterion.rs
+│       ├── history.rs
+│       ├── note.rs
+│       ├── project.rs
 │       ├── session.rs
 │       └── task.rs
 ├── migrations/
@@ -123,37 +121,19 @@ pub enum FeatureState {
 }
 ```
 
-### Criterion (Task Acceptance Criteria)
+### ImplementationNote
 
-Criteria belong to tasks within a session. They are ephemeral—deleted when the session completes (but their descriptions are preserved in FeatureHistory).
+Notes document implementation details and can be attached to either features or tasks.
 
 ```rust
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Criterion {
+pub struct ImplementationNote {
     pub id: Uuid,
-    pub task_id: Uuid,
-    pub description: String,
-    pub status: CriterionStatus,
-    pub verification: VerificationType,
-    pub test_file: Option<String>,
-    pub blocked_reason: Option<String>,
-    pub completed_at: Option<DateTime<Utc>>,
+    pub feature_id: Option<Uuid>,
+    pub task_id: Option<Uuid>,
+    pub content: String,
+    pub files_changed: Vec<String>,
     pub created_at: DateTime<Utc>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum CriterionStatus {
-    Pending,
-    Complete,
-    Blocked,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum VerificationType {
-    Manual,
-    Test,
 }
 ```
 
@@ -192,9 +172,7 @@ pub struct FeatureHistory {
     pub feature_id: Uuid,
     pub session_id: Option<Uuid>,
     pub summary: String,                    // What was accomplished
-    pub criteria_completed: Vec<String>,    // Which acceptance criteria were completed
     pub files_changed: Vec<String>,         // Files touched during the session
-    pub git_commits: Vec<String>,           // Related commit SHAs (future)
     pub author: String,                     // Who/what created this entry
     pub created_at: DateTime<Utc>,
 }
@@ -202,11 +180,14 @@ pub struct FeatureHistory {
 
 ### Task
 
+Tasks are small units of work (1-3 story points). They are self-referential via `parent_id` for optional sub-tasks. AI agents manage their own internal punch lists.
+
 ```rust
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Task {
     pub id: Uuid,
     pub session_id: Uuid,
+    pub parent_id: Option<Uuid>,    // Optional sub-task support
     pub title: String,
     pub scope: String,
     pub status: TaskStatus,
@@ -240,17 +221,32 @@ pub enum AgentType {
 
 Base URL: `http://localhost:3000/api/v1`
 
+### Projects
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/projects` | List all projects |
+| GET | `/projects/:id` | Get project by ID |
+| POST | `/projects` | Create project |
+| PUT | `/projects/:id` | Update project |
+| DELETE | `/projects/:id` | Delete project |
+| GET | `/projects/:id/directories` | List project directories |
+| POST | `/projects/:id/directories` | Add project directory |
+| GET | `/projects/:id/features` | List features for project |
+| POST | `/projects/:id/features` | Create feature in project |
+| GET | `/projects/:id/features/roots` | Get root features |
+
 ### Features
 
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/features` | List all features |
 | GET | `/features/:id` | Get feature by ID |
-| POST | `/features` | Create feature |
 | PUT | `/features/:id` | Update feature |
 | DELETE | `/features/:id` | Delete feature |
-| GET | `/features/:id/criteria` | List criteria for feature |
-| POST | `/features/:id/criteria` | Add criterion |
+| GET | `/features/:id/children` | Get direct children |
+| GET | `/features/:id/history` | Get feature history |
+| GET | `/features/:id/notes` | Get implementation notes |
 
 ### Sessions
 
@@ -267,14 +263,9 @@ Base URL: `http://localhost:3000/api/v1`
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/tasks/:id` | Get task by ID |
-| POST | `/sessions/:id/tasks` | Create task in session |
 | PUT | `/tasks/:id` | Update task status |
-
-### Criteria
-
-| Method | Path | Description |
-|--------|------|-------------|
-| PUT | `/criteria/:id` | Update criterion status |
+| GET | `/tasks/:id/notes` | Get task notes |
+| POST | `/tasks/:id/notes` | Add implementation note |
 
 ### Health
 
@@ -366,13 +357,7 @@ Response:
       "status": "completed",
       "agent_type": "claude"
     }
-  ],
-  "criteria_progress": {
-    "total": 4,
-    "complete": 2,
-    "blocked": 0,
-    "pending": 2
-  }
+  ]
 }
 ```
 
@@ -397,7 +382,7 @@ Get full context for assigned task.
 ```json
 {
   "name": "get_task_context",
-  "description": "Get the full context for your assigned task including feature details and acceptance criteria",
+  "description": "Get the full context for your assigned task including feature details",
   "inputSchema": {
     "type": "object",
     "properties": {
@@ -420,74 +405,13 @@ Response:
     "scope": "Login form, validation, API integration",
     "status": "running"
   },
-  "feature": {
-    "title": "User Authentication",
-    "description": "Users can log in with email and password",
-    "technical_notes": "Use bcrypt for password hashing, JWT for sessions",
-    "key_files": ["src/auth/login.ts", "src/auth/session.ts"]
-  },
-  "criteria": [
-    {
-      "id": "crit-1",
-      "text": "User can enter email and password",
-      "status": "pending",
-      "verification": "manual"
-    },
-    {
-      "id": "crit-2",
-      "text": "Validation errors shown inline",
-      "status": "pending",
-      "verification": "test",
-      "test_file": "tests/login.spec.ts"
-    }
-  ]
+  "feature_title": "User Authentication",
+  "feature_story": "Users can log in with email and password",
+  "feature_details": "Use bcrypt for password hashing, JWT for sessions"
 }
 ```
 
-#### 2. mark_criterion_complete
-
-Mark an acceptance criterion as complete.
-
-```json
-{
-  "name": "mark_criterion_complete",
-  "description": "Mark an acceptance criterion as complete",
-  "inputSchema": {
-    "type": "object",
-    "properties": {
-      "task_id": { "type": "string" },
-      "criterion_id": { "type": "string" },
-      "notes": {
-        "type": "string",
-        "description": "Optional implementation notes"
-      }
-    },
-    "required": ["task_id", "criterion_id"]
-  }
-}
-```
-
-#### 3. report_blocker
-
-Report that a criterion is blocked.
-
-```json
-{
-  "name": "report_blocker",
-  "description": "Report that a criterion is blocked and cannot be completed",
-  "inputSchema": {
-    "type": "object",
-    "properties": {
-      "task_id": { "type": "string" },
-      "criterion_id": { "type": "string" },
-      "reason": { "type": "string" }
-    },
-    "required": ["task_id", "criterion_id", "reason"]
-  }
-}
-```
-
-#### 4. add_implementation_note
+#### 2. add_implementation_note
 
 Add a note about implementation progress.
 
@@ -510,9 +434,9 @@ Add a note about implementation progress.
 }
 ```
 
-#### 5. complete_task
+#### 3. complete_task
 
-Signal that task is complete.
+Mark task as complete.
 
 ```json
 {
@@ -654,8 +578,8 @@ claude --mcp-server http://localhost:3001 "Work on task <task-id>"
 The agent then:
 1. Calls `get_task_context` with task ID
 2. Works on the implementation
-3. Reports progress via `mark_criterion_complete`, `add_implementation_note`
-4. Signals completion via `complete_task`
+3. Reports progress via `add_implementation_note`
+4. Marks completion via `complete_task`
 
 ---
 

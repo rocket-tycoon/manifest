@@ -24,20 +24,6 @@ pub struct GetTaskContextRequest {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
-pub struct MarkCriterionCompleteRequest {
-    #[schemars(description = "The criterion ID to mark as complete")]
-    pub criterion_id: String,
-}
-
-#[derive(Debug, Deserialize, JsonSchema)]
-pub struct ReportBlockerRequest {
-    #[schemars(description = "The criterion ID to mark as blocked")]
-    pub criterion_id: String,
-    #[schemars(description = "The reason for the blocker")]
-    pub reason: String,
-}
-
-#[derive(Debug, Deserialize, JsonSchema)]
 pub struct AddImplementationNoteRequest {
     #[schemars(description = "The task ID to add a note to")]
     pub task_id: String,
@@ -60,7 +46,6 @@ pub struct TaskContext {
     pub feature_title: String,
     pub feature_story: Option<String>,
     pub feature_details: Option<String>,
-    pub criteria: Vec<Criterion>,
 }
 
 impl McpServer {
@@ -79,7 +64,7 @@ impl McpServer {
 
 #[tool_router]
 impl McpServer {
-    #[tool(description = "Get the context for an assigned task, including feature details and acceptance criteria")]
+    #[tool(description = "Get the context for an assigned task, including feature details")]
     async fn get_task_context(
         &self,
         params: Parameters<GetTaskContextRequest>,
@@ -99,63 +84,17 @@ impl McpServer {
             .map_err(|e| McpError::internal_error(e.to_string(), None))?
             .ok_or_else(|| McpError::internal_error("Feature not found", None))?;
 
-        let criteria = self.db.get_criteria_by_task(task_id)
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-
         let context = TaskContext {
             task,
             feature_title: feature.title,
             feature_story: feature.story,
             feature_details: feature.details,
-            criteria,
         };
 
         let json = serde_json::to_string_pretty(&context)
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
 
         Ok(CallToolResult::success(vec![Content::text(json)]))
-    }
-
-    #[tool(description = "Mark an acceptance criterion as complete")]
-    async fn mark_criterion_complete(
-        &self,
-        params: Parameters<MarkCriterionCompleteRequest>,
-    ) -> Result<CallToolResult, McpError> {
-        let req = params.0;
-        let criterion_id = Self::parse_uuid(&req.criterion_id)?;
-
-        let updated = self.db.update_criterion(criterion_id, UpdateCriterionInput {
-            status: Some(CriterionStatus::Complete),
-            blocked_reason: None,
-        })
-        .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-
-        if !updated {
-            return Err(McpError::invalid_params("Criterion not found", None));
-        }
-
-        Ok(CallToolResult::success(vec![Content::text("Criterion marked as complete")]))
-    }
-
-    #[tool(description = "Report a blocker on a criterion")]
-    async fn report_blocker(
-        &self,
-        params: Parameters<ReportBlockerRequest>,
-    ) -> Result<CallToolResult, McpError> {
-        let req = params.0;
-        let criterion_id = Self::parse_uuid(&req.criterion_id)?;
-
-        let updated = self.db.update_criterion(criterion_id, UpdateCriterionInput {
-            status: Some(CriterionStatus::Blocked),
-            blocked_reason: Some(req.reason.clone()),
-        })
-        .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-
-        if !updated {
-            return Err(McpError::invalid_params("Criterion not found", None));
-        }
-
-        Ok(CallToolResult::success(vec![Content::text(format!("Criterion marked as blocked: {}", req.reason))]))
     }
 
     #[tool(description = "Add an implementation note to a task")]
