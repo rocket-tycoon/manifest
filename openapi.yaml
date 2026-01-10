@@ -231,6 +231,26 @@ paths:
                 items:
                   $ref: '#/components/schemas/Feature'
 
+  /projects/{id}/features/tree:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+    get:
+      tags: [Features]
+      summary: Get complete feature tree
+      description: |
+        Returns all features in a hierarchical tree structure with children
+        recursively nested. Useful for visualizing the full project structure.
+      operationId: getFeatureTree
+      responses:
+        '200':
+          description: Feature tree with nested children
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/FeatureTreeNode'
+
   # ============================================================
   # Directories (standalone)
   # ============================================================
@@ -779,6 +799,19 @@ components:
           nullable: true
         state:
           $ref: '#/components/schemas/FeatureState'
+
+    FeatureTreeNode:
+      type: object
+      description: A feature with its children recursively nested
+      allOf:
+        - $ref: '#/components/schemas/Feature'
+        - type: object
+          required: [children]
+          properties:
+            children:
+              type: array
+              items:
+                $ref: '#/components/schemas/FeatureTreeNode'
 
     FeatureHistory:
       type: object

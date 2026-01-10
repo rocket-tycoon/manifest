@@ -21,6 +21,7 @@ pub fn create_router(db: Database) -> Router {
         .route("/projects/{id}/features", get(handlers::list_project_features))
         .route("/projects/{id}/features", post(handlers::create_feature))
         .route("/projects/{id}/features/roots", get(handlers::list_root_features))
+        .route("/projects/{id}/features/tree", get(handlers::get_feature_tree))
         // Directories (for delete by directory id)
         .route("/directories/{id}", delete(handlers::remove_project_directory))
         // Features (by feature id)

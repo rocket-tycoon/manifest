@@ -134,6 +134,15 @@ pub async fn list_root_features(
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
 }
 
+pub async fn get_feature_tree(
+    State(db): State<Database>,
+    Path(project_id): Path<Uuid>,
+) -> Result<Json<Vec<FeatureTreeNode>>, (StatusCode, String)> {
+    db.get_feature_tree(project_id)
+        .map(Json)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+}
+
 pub async fn list_children(
     State(db): State<Database>,
     Path(parent_id): Path<Uuid>,
