@@ -1,0 +1,332 @@
+use axum::{
+    extract::{Path, State},
+    http::StatusCode,
+    response::IntoResponse,
+    Json,
+};
+use uuid::Uuid;
+
+use crate::db::Database;
+use crate::models::*;
+
+// ============================================================
+// Health
+// ============================================================
+
+pub async fn health() -> impl IntoResponse {
+    Json(serde_json::json!({ "status": "ok" }))
+}
+
+// ============================================================
+// Projects
+// ============================================================
+
+pub async fn list_projects(
+    State(db): State<Database>,
+) -> Result<Json<Vec<Project>>, (StatusCode, String)> {
+    db.get_all_projects()
+        .map(Json)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+}
+
+pub async fn get_project(
+    State(db): State<Database>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<ProjectWithDirectories>, (StatusCode, String)> {
+    db.get_project_with_directories(id)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .map(Json)
+        .ok_or((StatusCode::NOT_FOUND, "Project not found".to_string()))
+}
+
+pub async fn create_project(
+    State(db): State<Database>,
+    Json(input): Json<CreateProjectInput>,
+) -> Result<(StatusCode, Json<Project>), (StatusCode, String)> {
+    db.create_project(input)
+        .map(|p| (StatusCode::CREATED, Json(p)))
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+}
+
+pub async fn update_project(
+    State(db): State<Database>,
+    Path(id): Path<Uuid>,
+    Json(input): Json<UpdateProjectInput>,
+) -> Result<Json<Project>, (StatusCode, String)> {
+    db.update_project(id, input)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .map(Json)
+        .ok_or((StatusCode::NOT_FOUND, "Project not found".to_string()))
+}
+
+pub async fn delete_project(
+    State(db): State<Database>,
+    Path(id): Path<Uuid>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    if db.delete_project(id).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))? {
+        Ok(StatusCode::NO_CONTENT)
+    } else {
+        Err((StatusCode::NOT_FOUND, "Project not found".to_string()))
+    }
+}
+
+// ============================================================
+// Project Directories
+// ============================================================
+
+pub async fn list_project_directories(
+    State(db): State<Database>,
+    Path(project_id): Path<Uuid>,
+) -> Result<Json<Vec<ProjectDirectory>>, (StatusCode, String)> {
+    db.get_project_directories(project_id)
+        .map(Json)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+}
+
+pub async fn add_project_directory(
+    State(db): State<Database>,
+    Path(project_id): Path<Uuid>,
+    Json(input): Json<AddDirectoryInput>,
+) -> Result<(StatusCode, Json<ProjectDirectory>), (StatusCode, String)> {
+    db.add_project_directory(project_id, input)
+        .map(|d| (StatusCode::CREATED, Json(d)))
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+}
+
+pub async fn remove_project_directory(
+    State(db): State<Database>,
+    Path(id): Path<Uuid>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    if db.remove_project_directory(id).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))? {
+        Ok(StatusCode::NO_CONTENT)
+    } else {
+        Err((StatusCode::NOT_FOUND, "Directory not found".to_string()))
+    }
+}
+
+// ============================================================
+// Features
+// ============================================================
+
+pub async fn list_features(
+    State(db): State<Database>,
+) -> Result<Json<Vec<Feature>>, (StatusCode, String)> {
+    db.get_all_features()
+        .map(Json)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+}
+
+pub async fn list_project_features(
+    State(db): State<Database>,
+    Path(project_id): Path<Uuid>,
+) -> Result<Json<Vec<Feature>>, (StatusCode, String)> {
+    db.get_features_by_project(project_id)
+        .map(Json)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+}
+
+pub async fn list_root_features(
+    State(db): State<Database>,
+    Path(project_id): Path<Uuid>,
+) -> Result<Json<Vec<Feature>>, (StatusCode, String)> {
+    db.get_root_features(project_id)
+        .map(Json)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+}
+
+pub async fn list_children(
+    State(db): State<Database>,
+    Path(parent_id): Path<Uuid>,
+) -> Result<Json<Vec<Feature>>, (StatusCode, String)> {
+    db.get_children(parent_id)
+        .map(Json)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+}
+
+pub async fn get_feature_history(
+    State(db): State<Database>,
+    Path(feature_id): Path<Uuid>,
+) -> Result<Json<Vec<FeatureHistory>>, (StatusCode, String)> {
+    db.get_feature_history(feature_id)
+        .map(Json)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+}
+
+pub async fn get_feature(
+    State(db): State<Database>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<Feature>, (StatusCode, String)> {
+    db.get_feature(id)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .map(Json)
+        .ok_or((StatusCode::NOT_FOUND, "Feature not found".to_string()))
+}
+
+pub async fn create_feature(
+    State(db): State<Database>,
+    Path(project_id): Path<Uuid>,
+    Json(input): Json<CreateFeatureInput>,
+) -> Result<(StatusCode, Json<Feature>), (StatusCode, String)> {
+    db.create_feature(project_id, input)
+        .map(|f| (StatusCode::CREATED, Json(f)))
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+}
+
+pub async fn update_feature(
+    State(db): State<Database>,
+    Path(id): Path<Uuid>,
+    Json(input): Json<UpdateFeatureInput>,
+) -> Result<Json<Feature>, (StatusCode, String)> {
+    db.update_feature(id, input)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .map(Json)
+        .ok_or((StatusCode::NOT_FOUND, "Feature not found".to_string()))
+}
+
+pub async fn delete_feature(
+    State(db): State<Database>,
+    Path(id): Path<Uuid>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    if db.delete_feature(id).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))? {
+        Ok(StatusCode::NO_CONTENT)
+    } else {
+        Err((StatusCode::NOT_FOUND, "Feature not found".to_string()))
+    }
+}
+
+// ============================================================
+// Sessions
+// ============================================================
+
+pub async fn create_session(
+    State(db): State<Database>,
+    Json(input): Json<CreateSessionInput>,
+) -> Result<(StatusCode, Json<SessionResponse>), (StatusCode, String)> {
+    db.create_session(input)
+        .map(|s| (StatusCode::CREATED, Json(s)))
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+}
+
+pub async fn get_session(
+    State(db): State<Database>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<Session>, (StatusCode, String)> {
+    db.get_session(id)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .map(Json)
+        .ok_or((StatusCode::NOT_FOUND, "Session not found".to_string()))
+}
+
+pub async fn get_session_status(
+    State(db): State<Database>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<SessionStatusResponse>, (StatusCode, String)> {
+    db.get_session_status(id)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .map(Json)
+        .ok_or((StatusCode::NOT_FOUND, "Session not found".to_string()))
+}
+
+pub async fn complete_session(
+    State(db): State<Database>,
+    Path(id): Path<Uuid>,
+    Json(input): Json<CompleteSessionInput>,
+) -> Result<Json<SessionCompletionResult>, (StatusCode, String)> {
+    db.complete_session(id, input)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .map(Json)
+        .ok_or((StatusCode::NOT_FOUND, "Session not found".to_string()))
+}
+
+// ============================================================
+// Tasks
+// ============================================================
+
+pub async fn get_task(
+    State(db): State<Database>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<Task>, (StatusCode, String)> {
+    db.get_task(id)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .map(Json)
+        .ok_or((StatusCode::NOT_FOUND, "Task not found".to_string()))
+}
+
+pub async fn update_task(
+    State(db): State<Database>,
+    Path(id): Path<Uuid>,
+    Json(input): Json<UpdateTaskInput>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    if db.update_task(id, input).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))? {
+        Ok(StatusCode::OK)
+    } else {
+        Err((StatusCode::NOT_FOUND, "Task not found".to_string()))
+    }
+}
+
+// ============================================================
+// Implementation Notes
+// ============================================================
+
+pub async fn list_task_notes(
+    State(db): State<Database>,
+    Path(task_id): Path<Uuid>,
+) -> Result<Json<Vec<ImplementationNote>>, (StatusCode, String)> {
+    db.get_notes_by_task(task_id)
+        .map(Json)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+}
+
+pub async fn list_feature_notes(
+    State(db): State<Database>,
+    Path(feature_id): Path<Uuid>,
+) -> Result<Json<Vec<ImplementationNote>>, (StatusCode, String)> {
+    db.get_notes_by_feature(feature_id)
+        .map(Json)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+}
+
+pub async fn create_task_note(
+    State(db): State<Database>,
+    Path(task_id): Path<Uuid>,
+    Json(input): Json<CreateImplementationNoteInput>,
+) -> Result<(StatusCode, Json<ImplementationNote>), (StatusCode, String)> {
+    db.create_note_for_task(task_id, input)
+        .map(|n| (StatusCode::CREATED, Json(n)))
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+}
+
+// ============================================================
+// Criteria
+// ============================================================
+
+pub async fn list_task_criteria(
+    State(db): State<Database>,
+    Path(task_id): Path<Uuid>,
+) -> Result<Json<Vec<Criterion>>, (StatusCode, String)> {
+    db.get_criteria_by_task(task_id)
+        .map(Json)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+}
+
+pub async fn create_criterion(
+    State(db): State<Database>,
+    Path(task_id): Path<Uuid>,
+    Json(input): Json<CreateCriterionInput>,
+) -> Result<(StatusCode, Json<Criterion>), (StatusCode, String)> {
+    db.create_criterion(task_id, input)
+        .map(|c| (StatusCode::CREATED, Json(c)))
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+}
+
+pub async fn update_criterion(
+    State(db): State<Database>,
+    Path(id): Path<Uuid>,
+    Json(input): Json<UpdateCriterionInput>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    if db.update_criterion(id, input).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))? {
+        Ok(StatusCode::OK)
+    } else {
+        Err((StatusCode::NOT_FOUND, "Criterion not found".to_string()))
+    }
+}

@@ -1,0 +1,1089 @@
+use rocket_manifest::db::Database;
+use rocket_manifest::models::*;
+use speculate2::speculate;
+use uuid::Uuid;
+
+fn create_test_project(db: &Database) -> Project {
+    db.create_project(CreateProjectInput {
+        name: "Test Project".to_string(),
+        description: None,
+    }).expect("Failed to create project")
+}
+
+speculate! {
+    before {
+        let db = Database::open_memory().expect("Failed to create in-memory database");
+        db.migrate().expect("Failed to run migrations");
+    }
+
+    describe "projects" {
+        describe "create_project" {
+            it "creates a project with required fields" {
+                let project = db.create_project(CreateProjectInput {
+                    name: "My Project".to_string(),
+                    description: None,
+                }).expect("Failed to create project");
+
+                assert_eq!(project.name, "My Project");
+                assert!(project.description.is_none());
+            }
+
+            it "creates a project with all fields" {
+                let project = db.create_project(CreateProjectInput {
+                    name: "Full Project".to_string(),
+                    description: Some("A complete project".to_string()),
+                }).expect("Failed to create project");
+
+                assert_eq!(project.name, "Full Project");
+                assert_eq!(project.description, Some("A complete project".to_string()));
+            }
+        }
+
+        describe "get_project" {
+            it "returns None for non-existent project" {
+                let result = db.get_project(Uuid::new_v4()).expect("Query failed");
+                assert!(result.is_none());
+            }
+
+            it "returns the project by id" {
+                let created = db.create_project(CreateProjectInput {
+                    name: "Test".to_string(),
+                    description: None,
+                }).expect("Failed to create");
+
+                let found = db.get_project(created.id).expect("Query failed");
+                assert!(found.is_some());
+                assert_eq!(found.unwrap().name, "Test");
+            }
+        }
+
+        describe "get_all_projects" {
+            it "returns empty list when no projects exist" {
+                let projects = db.get_all_projects().expect("Query failed");
+                assert!(projects.is_empty());
+            }
+
+            it "returns all projects ordered by name" {
+                db.create_project(CreateProjectInput {
+                    name: "Zebra".to_string(),
+                    description: None,
+                }).expect("Failed to create");
+
+                db.create_project(CreateProjectInput {
+                    name: "Alpha".to_string(),
+                    description: None,
+                }).expect("Failed to create");
+
+                let projects = db.get_all_projects().expect("Query failed");
+                assert_eq!(projects.len(), 2);
+                assert_eq!(projects[0].name, "Alpha");
+                assert_eq!(projects[1].name, "Zebra");
+            }
+        }
+
+        describe "delete_project" {
+            it "deletes the project and cascades to features" {
+                let project = create_test_project(&db);
+
+                db.create_feature(project.id, CreateFeatureInput {
+                    parent_id: None,
+                    title: "Feature".to_string(),
+                    story: None,
+                    details: None,
+                    state: None,
+                }).expect("Failed to create feature");
+
+                db.delete_project(project.id).expect("Failed to delete");
+
+                let features = db.get_features_by_project(project.id).expect("Query failed");
+                assert!(features.is_empty());
+            }
+        }
+    }
+
+    describe "project_directories" {
+        describe "add_project_directory" {
+            it "adds a directory to a project" {
+                let project = create_test_project(&db);
+
+                let dir = db.add_project_directory(project.id, AddDirectoryInput {
+                    path: "/home/user/project".to_string(),
+                    git_remote: Some("git@github.com:user/project.git".to_string()),
+                    is_primary: true,
+                }).expect("Failed to add directory");
+
+                assert_eq!(dir.project_id, project.id);
+                assert_eq!(dir.path, "/home/user/project");
+                assert!(dir.is_primary);
+            }
+        }
+
+        describe "get_project_directories" {
+            it "returns directories ordered by is_primary then path" {
+                let project = create_test_project(&db);
+
+                db.add_project_directory(project.id, AddDirectoryInput {
+                    path: "/b/path".to_string(),
+                    git_remote: None,
+                    is_primary: false,
+                }).expect("Failed");
+
+                db.add_project_directory(project.id, AddDirectoryInput {
+                    path: "/a/path".to_string(),
+                    git_remote: None,
+                    is_primary: true,
+                }).expect("Failed");
+
+                let dirs = db.get_project_directories(project.id).expect("Query failed");
+                assert_eq!(dirs.len(), 2);
+                assert!(dirs[0].is_primary); // Primary first
+                assert_eq!(dirs[1].path, "/b/path");
+            }
+        }
+    }
+
+    describe "features" {
+        describe "create_feature" {
+            it "creates a feature with required fields" {
+                let project = create_test_project(&db);
+                let input = CreateFeatureInput {
+                    parent_id: None,
+                    title: "User Login".to_string(),
+                    story: None,
+                    details: None,
+                    state: None,
+                };
+
+                let feature = db.create_feature(project.id, input).expect("Failed to create feature");
+
+                assert_eq!(feature.title, "User Login");
+                assert_eq!(feature.project_id, project.id);
+                assert_eq!(feature.state, FeatureState::Proposed);
+            }
+
+            it "creates a feature with all fields" {
+                let project = create_test_project(&db);
+                let input = CreateFeatureInput {
+                    parent_id: None,
+                    title: "OAuth Integration".to_string(),
+                    story: Some("As a user, I want to log in with OAuth".to_string()),
+                    details: Some("## Technical Notes\n\nUse PKCE flow".to_string()),
+                    state: Some(FeatureState::Specified),
+                };
+
+                let feature = db.create_feature(project.id, input).expect("Failed to create feature");
+
+                assert_eq!(feature.title, "OAuth Integration");
+                assert_eq!(feature.state, FeatureState::Specified);
+                assert_eq!(feature.story, Some("As a user, I want to log in with OAuth".to_string()));
+                assert!(feature.details.unwrap().contains("PKCE"));
+            }
+        }
+
+        describe "get_feature" {
+            it "returns None for non-existent feature" {
+                let result = db.get_feature(Uuid::new_v4()).expect("Query failed");
+                assert!(result.is_none());
+            }
+
+            it "returns the feature by id" {
+                let project = create_test_project(&db);
+                let input = CreateFeatureInput {
+                    parent_id: None,
+                    title: "Rate Limiting".to_string(),
+                    story: None,
+                    details: None,
+                    state: None,
+                };
+                let created = db.create_feature(project.id, input).expect("Failed to create");
+
+                let found = db.get_feature(created.id).expect("Query failed");
+
+                assert!(found.is_some());
+                assert_eq!(found.unwrap().title, "Rate Limiting");
+            }
+        }
+
+        describe "get_all_features" {
+            it "returns empty list when no features exist" {
+                let features = db.get_all_features().expect("Query failed");
+                assert!(features.is_empty());
+            }
+
+            it "returns all features ordered by title" {
+                let project = create_test_project(&db);
+
+                db.create_feature(project.id, CreateFeatureInput {
+                    parent_id: None,
+                    title: "Zebra Feature".to_string(),
+                    story: None,
+                    details: None,
+                    state: None,
+                }).expect("Failed to create");
+
+                db.create_feature(project.id, CreateFeatureInput {
+                    parent_id: None,
+                    title: "Alpha Feature".to_string(),
+                    story: None,
+                    details: None,
+                    state: None,
+                }).expect("Failed to create");
+
+                let features = db.get_all_features().expect("Query failed");
+
+                assert_eq!(features.len(), 2);
+                assert_eq!(features[0].title, "Alpha Feature");
+                assert_eq!(features[1].title, "Zebra Feature");
+            }
+        }
+
+        describe "update_feature" {
+            it "returns None for non-existent feature" {
+                let input = UpdateFeatureInput {
+                    parent_id: None,
+                    title: Some("New Title".to_string()),
+                    story: None,
+                    details: None,
+                    state: None,
+                };
+
+                let result = db.update_feature(Uuid::new_v4(), input).expect("Query failed");
+                assert!(result.is_none());
+            }
+
+            it "updates only provided fields" {
+                let project = create_test_project(&db);
+                let created = db.create_feature(project.id, CreateFeatureInput {
+                    parent_id: None,
+                    title: "Original Title".to_string(),
+                    story: None,
+                    details: None,
+                    state: Some(FeatureState::Proposed),
+                }).expect("Failed to create");
+
+                let updated = db.update_feature(created.id, UpdateFeatureInput {
+                    parent_id: None,
+                    title: Some("Updated Title".to_string()),
+                    story: None,
+                    details: None,
+                    state: None,
+                }).expect("Query failed").expect("Feature not found");
+
+                assert_eq!(updated.title, "Updated Title");
+                assert_eq!(updated.state, FeatureState::Proposed);
+            }
+
+            it "transitions feature state" {
+                let project = create_test_project(&db);
+                let created = db.create_feature(project.id, CreateFeatureInput {
+                    parent_id: None,
+                    title: "Feature".to_string(),
+                    story: None,
+                    details: None,
+                    state: Some(FeatureState::Proposed),
+                }).expect("Failed to create");
+
+                let updated = db.update_feature(created.id, UpdateFeatureInput {
+                    parent_id: None,
+                    title: None,
+                    story: None,
+                    details: None,
+                    state: Some(FeatureState::Implemented),
+                }).expect("Query failed").expect("Feature not found");
+
+                assert_eq!(updated.state, FeatureState::Implemented);
+            }
+        }
+
+        describe "delete_feature" {
+            it "returns false for non-existent feature" {
+                let result = db.delete_feature(Uuid::new_v4()).expect("Query failed");
+                assert!(!result);
+            }
+
+            it "deletes the feature and returns true" {
+                let project = create_test_project(&db);
+                let created = db.create_feature(project.id, CreateFeatureInput {
+                    parent_id: None,
+                    title: "To Delete".to_string(),
+                    story: None,
+                    details: None,
+                    state: None,
+                }).expect("Failed to create");
+
+                let deleted = db.delete_feature(created.id).expect("Query failed");
+                assert!(deleted);
+
+                let found = db.get_feature(created.id).expect("Query failed");
+                assert!(found.is_none());
+            }
+        }
+    }
+
+    describe "feature_hierarchy" {
+        describe "nested features" {
+            it "creates a child feature under a parent" {
+                let project = create_test_project(&db);
+                let parent = db.create_feature(project.id, CreateFeatureInput {
+                    parent_id: None,
+                    title: "Authentication".to_string(),
+                    story: None,
+                    details: None,
+                    state: None,
+                }).expect("Failed to create parent");
+
+                let child = db.create_feature(project.id, CreateFeatureInput {
+                    parent_id: Some(parent.id),
+                    title: "Login".to_string(),
+                    story: None,
+                    details: None,
+                    state: None,
+                }).expect("Failed to create child");
+
+                assert_eq!(child.parent_id, Some(parent.id));
+            }
+
+            it "creates deeply nested features" {
+                let project = create_test_project(&db);
+                let root = db.create_feature(project.id, CreateFeatureInput {
+                    parent_id: None,
+                    title: "Authentication".to_string(),
+                    story: None,
+                    details: None,
+                    state: None,
+                }).expect("Failed to create");
+
+                let level1 = db.create_feature(project.id, CreateFeatureInput {
+                    parent_id: Some(root.id),
+                    title: "OAuth".to_string(),
+                    story: None,
+                    details: None,
+                    state: None,
+                }).expect("Failed to create");
+
+                let level2 = db.create_feature(project.id, CreateFeatureInput {
+                    parent_id: Some(level1.id),
+                    title: "Google".to_string(),
+                    story: None,
+                    details: None,
+                    state: None,
+                }).expect("Failed to create");
+
+                assert_eq!(level2.parent_id, Some(level1.id));
+
+                let found = db.get_feature(level2.id).expect("Query failed").unwrap();
+                assert_eq!(found.parent_id, Some(level1.id));
+            }
+        }
+
+        describe "get_root_features" {
+            it "returns only features without parents" {
+                let project = create_test_project(&db);
+                let root1 = db.create_feature(project.id, CreateFeatureInput {
+                    parent_id: None,
+                    title: "Root 1".to_string(),
+                    story: None,
+                    details: None,
+                    state: None,
+                }).expect("Failed to create");
+
+                let _root2 = db.create_feature(project.id, CreateFeatureInput {
+                    parent_id: None,
+                    title: "Root 2".to_string(),
+                    story: None,
+                    details: None,
+                    state: None,
+                }).expect("Failed to create");
+
+                db.create_feature(project.id, CreateFeatureInput {
+                    parent_id: Some(root1.id),
+                    title: "Child".to_string(),
+                    story: None,
+                    details: None,
+                    state: None,
+                }).expect("Failed to create");
+
+                let roots = db.get_root_features(project.id).expect("Query failed");
+
+                assert_eq!(roots.len(), 2);
+                assert!(roots.iter().all(|f| f.parent_id.is_none()));
+            }
+        }
+
+        describe "get_children" {
+            it "returns empty list when feature has no children" {
+                let project = create_test_project(&db);
+                let leaf = db.create_feature(project.id, CreateFeatureInput {
+                    parent_id: None,
+                    title: "Leaf".to_string(),
+                    story: None,
+                    details: None,
+                    state: None,
+                }).expect("Failed to create");
+
+                let children = db.get_children(leaf.id).expect("Query failed");
+                assert!(children.is_empty());
+            }
+
+            it "returns direct children ordered by title" {
+                let project = create_test_project(&db);
+                let parent = db.create_feature(project.id, CreateFeatureInput {
+                    parent_id: None,
+                    title: "Parent".to_string(),
+                    story: None,
+                    details: None,
+                    state: None,
+                }).expect("Failed to create");
+
+                db.create_feature(project.id, CreateFeatureInput {
+                    parent_id: Some(parent.id),
+                    title: "Zebra Child".to_string(),
+                    story: None,
+                    details: None,
+                    state: None,
+                }).expect("Failed to create");
+
+                db.create_feature(project.id, CreateFeatureInput {
+                    parent_id: Some(parent.id),
+                    title: "Alpha Child".to_string(),
+                    story: None,
+                    details: None,
+                    state: None,
+                }).expect("Failed to create");
+
+                let children = db.get_children(parent.id).expect("Query failed");
+
+                assert_eq!(children.len(), 2);
+                assert_eq!(children[0].title, "Alpha Child");
+                assert_eq!(children[1].title, "Zebra Child");
+            }
+
+            it "does not return grandchildren" {
+                let project = create_test_project(&db);
+                let parent = db.create_feature(project.id, CreateFeatureInput {
+                    parent_id: None,
+                    title: "Parent".to_string(),
+                    story: None,
+                    details: None,
+                    state: None,
+                }).expect("Failed to create");
+
+                let child = db.create_feature(project.id, CreateFeatureInput {
+                    parent_id: Some(parent.id),
+                    title: "Child".to_string(),
+                    story: None,
+                    details: None,
+                    state: None,
+                }).expect("Failed to create");
+
+                db.create_feature(project.id, CreateFeatureInput {
+                    parent_id: Some(child.id),
+                    title: "Grandchild".to_string(),
+                    story: None,
+                    details: None,
+                    state: None,
+                }).expect("Failed to create");
+
+                let children = db.get_children(parent.id).expect("Query failed");
+                assert_eq!(children.len(), 1);
+                assert_eq!(children[0].title, "Child");
+            }
+        }
+
+        describe "is_leaf" {
+            it "returns true for feature with no children" {
+                let project = create_test_project(&db);
+                let leaf = db.create_feature(project.id, CreateFeatureInput {
+                    parent_id: None,
+                    title: "Leaf".to_string(),
+                    story: None,
+                    details: None,
+                    state: None,
+                }).expect("Failed to create");
+
+                assert!(db.is_leaf(leaf.id).expect("Query failed"));
+            }
+
+            it "returns false for feature with children" {
+                let project = create_test_project(&db);
+                let parent = db.create_feature(project.id, CreateFeatureInput {
+                    parent_id: None,
+                    title: "Parent".to_string(),
+                    story: None,
+                    details: None,
+                    state: None,
+                }).expect("Failed to create");
+
+                db.create_feature(project.id, CreateFeatureInput {
+                    parent_id: Some(parent.id),
+                    title: "Child".to_string(),
+                    story: None,
+                    details: None,
+                    state: None,
+                }).expect("Failed to create");
+
+                assert!(!db.is_leaf(parent.id).expect("Query failed"));
+            }
+        }
+
+        describe "cascade delete" {
+            it "deletes children when parent is deleted" {
+                let project = create_test_project(&db);
+                let parent = db.create_feature(project.id, CreateFeatureInput {
+                    parent_id: None,
+                    title: "Parent".to_string(),
+                    story: None,
+                    details: None,
+                    state: None,
+                }).expect("Failed to create");
+
+                let child = db.create_feature(project.id, CreateFeatureInput {
+                    parent_id: Some(parent.id),
+                    title: "Child".to_string(),
+                    story: None,
+                    details: None,
+                    state: None,
+                }).expect("Failed to create");
+
+                db.delete_feature(parent.id).expect("Failed to delete");
+
+                let found = db.get_feature(child.id).expect("Query failed");
+                assert!(found.is_none());
+            }
+        }
+    }
+
+    describe "sessions" {
+        describe "leaf validation" {
+            it "allows session on leaf feature" {
+                let project = create_test_project(&db);
+                let leaf = db.create_feature(project.id, CreateFeatureInput {
+                    parent_id: None,
+                    title: "Leaf Feature".to_string(),
+                    story: None,
+                    details: None,
+                    state: None,
+                }).expect("Failed to create");
+
+                let result = db.create_session(CreateSessionInput {
+                    feature_id: leaf.id,
+                    goal: "Implement feature".to_string(),
+                    tasks: vec![],
+                });
+
+                assert!(result.is_ok());
+            }
+
+            it "rejects session on non-leaf feature" {
+                let project = create_test_project(&db);
+                let parent = db.create_feature(project.id, CreateFeatureInput {
+                    parent_id: None,
+                    title: "Parent".to_string(),
+                    story: None,
+                    details: None,
+                    state: None,
+                }).expect("Failed to create");
+
+                db.create_feature(project.id, CreateFeatureInput {
+                    parent_id: Some(parent.id),
+                    title: "Child".to_string(),
+                    story: None,
+                    details: None,
+                    state: None,
+                }).expect("Failed to create");
+
+                let result = db.create_session(CreateSessionInput {
+                    feature_id: parent.id,
+                    goal: "Implement feature".to_string(),
+                    tasks: vec![],
+                });
+
+                assert!(result.is_err());
+                assert!(result.unwrap_err().to_string().contains("leaf"));
+            }
+        }
+
+        describe "complete_session" {
+            it "returns None for non-existent session" {
+                let result = db.complete_session(Uuid::new_v4(), CompleteSessionInput {
+                    summary: "Done".to_string(),
+                }).expect("Query failed");
+
+                assert!(result.is_none());
+            }
+
+            it "completes session and creates history entry" {
+                let project = create_test_project(&db);
+                let feature = db.create_feature(project.id, CreateFeatureInput {
+                    parent_id: None,
+                    title: "Feature".to_string(),
+                    story: None,
+                    details: None,
+                    state: None,
+                }).expect("Failed to create");
+
+                let session_response = db.create_session(CreateSessionInput {
+                    feature_id: feature.id,
+                    goal: "Implement feature".to_string(),
+                    tasks: vec![CreateTaskInput {
+                        title: "Task".to_string(),
+                        scope: "Scope".to_string(),
+                        agent_type: AgentType::Claude,
+                    }],
+                }).expect("Failed to create");
+
+                let result = db.complete_session(session_response.session.id, CompleteSessionInput {
+                    summary: "Implemented the feature".to_string(),
+                }).expect("Query failed").expect("Session not found");
+
+                assert_eq!(result.session.status, SessionStatus::Completed);
+                assert!(result.session.completed_at.is_some());
+                assert_eq!(result.history_entry.summary, "Implemented the feature");
+                assert_eq!(result.history_entry.session_id, Some(session_response.session.id));
+            }
+
+            it "deletes tasks on completion" {
+                let project = create_test_project(&db);
+                let feature = db.create_feature(project.id, CreateFeatureInput {
+                    parent_id: None,
+                    title: "Feature".to_string(),
+                    story: None,
+                    details: None,
+                    state: None,
+                }).expect("Failed to create");
+
+                let session_response = db.create_session(CreateSessionInput {
+                    feature_id: feature.id,
+                    goal: "Goal".to_string(),
+                    tasks: vec![CreateTaskInput {
+                        title: "Task".to_string(),
+                        scope: "Scope".to_string(),
+                        agent_type: AgentType::Claude,
+                    }],
+                }).expect("Failed to create");
+
+                let task_id = session_response.tasks[0].id;
+
+                db.complete_session(session_response.session.id, CompleteSessionInput {
+                    summary: "Done".to_string(),
+                }).expect("Failed to complete");
+
+                // Task should be deleted
+                let task = db.get_task(task_id).expect("Query failed");
+                assert!(task.is_none());
+            }
+
+            it "rejects completing already completed session" {
+                let project = create_test_project(&db);
+                let feature = db.create_feature(project.id, CreateFeatureInput {
+                    parent_id: None,
+                    title: "Feature".to_string(),
+                    story: None,
+                    details: None,
+                    state: None,
+                }).expect("Failed to create");
+
+                let session_response = db.create_session(CreateSessionInput {
+                    feature_id: feature.id,
+                    goal: "Goal".to_string(),
+                    tasks: vec![],
+                }).expect("Failed to create");
+
+                db.complete_session(session_response.session.id, CompleteSessionInput {
+                    summary: "First completion".to_string(),
+                }).expect("Failed to complete");
+
+                // Try to complete again
+                let result = db.complete_session(session_response.session.id, CompleteSessionInput {
+                    summary: "Second completion".to_string(),
+                });
+
+                assert!(result.is_err());
+                assert!(result.unwrap_err().to_string().contains("not active"));
+            }
+        }
+    }
+
+    describe "feature_history" {
+        describe "create_history_entry" {
+            it "creates a history entry with all fields" {
+                let project = create_test_project(&db);
+                let feature = db.create_feature(project.id, CreateFeatureInput {
+                    parent_id: None,
+                    title: "Test Feature".to_string(),
+                    story: None,
+                    details: None,
+                    state: None,
+                }).expect("Failed to create feature");
+
+                let session_id = Uuid::new_v4();
+                let entry = db.create_history_entry(CreateHistoryInput {
+                    feature_id: feature.id,
+                    session_id: Some(session_id),
+                    summary: "Implemented login flow".to_string(),
+                    files_changed: vec!["src/auth.rs".to_string(), "src/routes.rs".to_string()],
+                    author: "claude".to_string(),
+                }).expect("Failed to create history entry");
+
+                assert_eq!(entry.feature_id, feature.id);
+                assert_eq!(entry.session_id, Some(session_id));
+                assert_eq!(entry.summary, "Implemented login flow");
+                assert_eq!(entry.files_changed.len(), 2);
+                assert_eq!(entry.author, "claude");
+            }
+
+            it "creates entry without session_id" {
+                let project = create_test_project(&db);
+                let feature = db.create_feature(project.id, CreateFeatureInput {
+                    parent_id: None,
+                    title: "Manual Feature".to_string(),
+                    story: None,
+                    details: None,
+                    state: None,
+                }).expect("Failed to create feature");
+
+                let entry = db.create_history_entry(CreateHistoryInput {
+                    feature_id: feature.id,
+                    session_id: None,
+                    summary: "Manual update".to_string(),
+                    files_changed: vec![],
+                    author: "human".to_string(),
+                }).expect("Failed to create history entry");
+
+                assert!(entry.session_id.is_none());
+                assert!(entry.files_changed.is_empty());
+            }
+        }
+
+        describe "get_feature_history" {
+            it "returns empty list when no history exists" {
+                let project = create_test_project(&db);
+                let feature = db.create_feature(project.id, CreateFeatureInput {
+                    parent_id: None,
+                    title: "New Feature".to_string(),
+                    story: None,
+                    details: None,
+                    state: None,
+                }).expect("Failed to create feature");
+
+                let history = db.get_feature_history(feature.id).expect("Query failed");
+                assert!(history.is_empty());
+            }
+
+            it "returns history entries in reverse chronological order" {
+                let project = create_test_project(&db);
+                let feature = db.create_feature(project.id, CreateFeatureInput {
+                    parent_id: None,
+                    title: "Feature".to_string(),
+                    story: None,
+                    details: None,
+                    state: None,
+                }).expect("Failed to create feature");
+
+                db.create_history_entry(CreateHistoryInput {
+                    feature_id: feature.id,
+                    session_id: None,
+                    summary: "First change".to_string(),
+                    files_changed: vec![],
+                    author: "dev1".to_string(),
+                }).expect("Failed to create");
+
+                db.create_history_entry(CreateHistoryInput {
+                    feature_id: feature.id,
+                    session_id: None,
+                    summary: "Second change".to_string(),
+                    files_changed: vec![],
+                    author: "dev2".to_string(),
+                }).expect("Failed to create");
+
+                let history = db.get_feature_history(feature.id).expect("Query failed");
+
+                assert_eq!(history.len(), 2);
+                assert_eq!(history[0].summary, "Second change");
+                assert_eq!(history[1].summary, "First change");
+            }
+
+            it "only returns history for specified feature" {
+                let project = create_test_project(&db);
+                let feature1 = db.create_feature(project.id, CreateFeatureInput {
+                    parent_id: None,
+                    title: "Feature 1".to_string(),
+                    story: None,
+                    details: None,
+                    state: None,
+                }).expect("Failed to create");
+
+                let feature2 = db.create_feature(project.id, CreateFeatureInput {
+                    parent_id: None,
+                    title: "Feature 2".to_string(),
+                    story: None,
+                    details: None,
+                    state: None,
+                }).expect("Failed to create");
+
+                db.create_history_entry(CreateHistoryInput {
+                    feature_id: feature1.id,
+                    session_id: None,
+                    summary: "Change to feature 1".to_string(),
+                    files_changed: vec![],
+                    author: "dev".to_string(),
+                }).expect("Failed to create");
+
+                db.create_history_entry(CreateHistoryInput {
+                    feature_id: feature2.id,
+                    session_id: None,
+                    summary: "Change to feature 2".to_string(),
+                    files_changed: vec![],
+                    author: "dev".to_string(),
+                }).expect("Failed to create");
+
+                let history = db.get_feature_history(feature1.id).expect("Query failed");
+
+                assert_eq!(history.len(), 1);
+                assert_eq!(history[0].summary, "Change to feature 1");
+            }
+        }
+
+        describe "cascade delete" {
+            it "deletes history when feature is deleted" {
+                let project = create_test_project(&db);
+                let feature = db.create_feature(project.id, CreateFeatureInput {
+                    parent_id: None,
+                    title: "Feature".to_string(),
+                    story: None,
+                    details: None,
+                    state: None,
+                }).expect("Failed to create");
+
+                db.create_history_entry(CreateHistoryInput {
+                    feature_id: feature.id,
+                    session_id: None,
+                    summary: "Some work".to_string(),
+                    files_changed: vec![],
+                    author: "dev".to_string(),
+                }).expect("Failed to create");
+
+                db.delete_feature(feature.id).expect("Failed to delete");
+
+                // History should be gone (cascade delete)
+                let history = db.get_feature_history(feature.id).expect("Query failed");
+                assert!(history.is_empty());
+            }
+        }
+    }
+
+    describe "criteria" {
+        fn create_task_for_test(db: &Database) -> Task {
+            let project = db.create_project(CreateProjectInput {
+                name: "Criteria Test Project".to_string(),
+                description: None,
+            }).expect("Failed to create project");
+
+            let feature = db.create_feature(project.id, CreateFeatureInput {
+                parent_id: None,
+                title: "Test Feature".to_string(),
+                story: None,
+                details: None,
+                state: None,
+            }).expect("Failed to create feature");
+
+            let session_response = db.create_session(CreateSessionInput {
+                feature_id: feature.id,
+                goal: "Test goal".to_string(),
+                tasks: vec![CreateTaskInput {
+                    title: "Test Task".to_string(),
+                    scope: "Test scope".to_string(),
+                    agent_type: AgentType::Claude,
+                }],
+            }).expect("Failed to create session");
+
+            session_response.tasks.into_iter().next().expect("No task created")
+        }
+
+        describe "create_criterion" {
+            it "creates a criterion with required fields" {
+                let task = create_task_for_test(&db);
+
+                let criterion = db.create_criterion(task.id, CreateCriterionInput {
+                    description: "User can login".to_string(),
+                    verification: None,
+                    test_file: None,
+                }).expect("Failed to create criterion");
+
+                assert_eq!(criterion.description, "User can login");
+                assert_eq!(criterion.status, CriterionStatus::Pending);
+                assert_eq!(criterion.verification, VerificationType::Manual);
+                assert!(criterion.test_file.is_none());
+            }
+
+            it "creates a criterion with all fields" {
+                let task = create_task_for_test(&db);
+
+                let criterion = db.create_criterion(task.id, CreateCriterionInput {
+                    description: "Tests pass".to_string(),
+                    verification: Some(VerificationType::Test),
+                    test_file: Some("tests/auth_spec.rs".to_string()),
+                }).expect("Failed to create criterion");
+
+                assert_eq!(criterion.verification, VerificationType::Test);
+                assert_eq!(criterion.test_file, Some("tests/auth_spec.rs".to_string()));
+            }
+
+            it "fails when task does not exist" {
+                let result = db.create_criterion(Uuid::new_v4(), CreateCriterionInput {
+                    description: "Some criterion".to_string(),
+                    verification: None,
+                    test_file: None,
+                });
+
+                assert!(result.is_err());
+                assert!(result.unwrap_err().to_string().contains("Task not found"));
+            }
+        }
+
+        describe "get_criterion" {
+            it "returns None for non-existent criterion" {
+                let result = db.get_criterion(Uuid::new_v4()).expect("Query failed");
+                assert!(result.is_none());
+            }
+
+            it "returns the criterion by id" {
+                let task = create_task_for_test(&db);
+
+                let created = db.create_criterion(task.id, CreateCriterionInput {
+                    description: "Criterion".to_string(),
+                    verification: None,
+                    test_file: None,
+                }).expect("Failed to create");
+
+                let found = db.get_criterion(created.id).expect("Query failed");
+
+                assert!(found.is_some());
+                assert_eq!(found.unwrap().description, "Criterion");
+            }
+        }
+
+        describe "get_criteria_by_task" {
+            it "returns empty list when task has no criteria" {
+                let task = create_task_for_test(&db);
+
+                let criteria = db.get_criteria_by_task(task.id).expect("Query failed");
+                assert!(criteria.is_empty());
+            }
+
+            it "returns all criteria for task ordered by created_at" {
+                let task = create_task_for_test(&db);
+
+                db.create_criterion(task.id, CreateCriterionInput {
+                    description: "First criterion".to_string(),
+                    verification: None,
+                    test_file: None,
+                }).expect("Failed to create");
+
+                db.create_criterion(task.id, CreateCriterionInput {
+                    description: "Second criterion".to_string(),
+                    verification: None,
+                    test_file: None,
+                }).expect("Failed to create");
+
+                let criteria = db.get_criteria_by_task(task.id).expect("Query failed");
+
+                assert_eq!(criteria.len(), 2);
+                assert_eq!(criteria[0].description, "First criterion");
+                assert_eq!(criteria[1].description, "Second criterion");
+            }
+        }
+
+        describe "update_criterion" {
+            it "returns false for non-existent criterion" {
+                let result = db.update_criterion(Uuid::new_v4(), UpdateCriterionInput {
+                    status: Some(CriterionStatus::Complete),
+                    blocked_reason: None,
+                }).expect("Query failed");
+
+                assert!(!result);
+            }
+
+            it "updates status to complete and sets completed_at" {
+                let task = create_task_for_test(&db);
+
+                let created = db.create_criterion(task.id, CreateCriterionInput {
+                    description: "Criterion".to_string(),
+                    verification: None,
+                    test_file: None,
+                }).expect("Failed to create");
+
+                let updated = db.update_criterion(created.id, UpdateCriterionInput {
+                    status: Some(CriterionStatus::Complete),
+                    blocked_reason: None,
+                }).expect("Query failed");
+
+                assert!(updated);
+
+                let found = db.get_criterion(created.id).expect("Query failed").unwrap();
+                assert_eq!(found.status, CriterionStatus::Complete);
+                assert!(found.completed_at.is_some());
+            }
+
+            it "updates status to blocked with reason" {
+                let task = create_task_for_test(&db);
+
+                let created = db.create_criterion(task.id, CreateCriterionInput {
+                    description: "Criterion".to_string(),
+                    verification: None,
+                    test_file: None,
+                }).expect("Failed to create");
+
+                db.update_criterion(created.id, UpdateCriterionInput {
+                    status: Some(CriterionStatus::Blocked),
+                    blocked_reason: Some("Missing API access".to_string()),
+                }).expect("Query failed");
+
+                let found = db.get_criterion(created.id).expect("Query failed").unwrap();
+                assert_eq!(found.status, CriterionStatus::Blocked);
+                assert_eq!(found.blocked_reason, Some("Missing API access".to_string()));
+            }
+        }
+
+        describe "cascade delete" {
+            it "deletes criteria when task is deleted via session cascade" {
+                let project = db.create_project(CreateProjectInput {
+                    name: "Cascade Test".to_string(),
+                    description: None,
+                }).expect("Failed to create project");
+
+                let feature = db.create_feature(project.id, CreateFeatureInput {
+                    parent_id: None,
+                    title: "Feature".to_string(),
+                    story: None,
+                    details: None,
+                    state: None,
+                }).expect("Failed to create");
+
+                let session_response = db.create_session(CreateSessionInput {
+                    feature_id: feature.id,
+                    goal: "Goal".to_string(),
+                    tasks: vec![CreateTaskInput {
+                        title: "Task".to_string(),
+                        scope: "Scope".to_string(),
+                        agent_type: AgentType::Claude,
+                    }],
+                }).expect("Failed to create session");
+
+                let task = session_response.tasks.into_iter().next().unwrap();
+
+                let criterion = db.create_criterion(task.id, CreateCriterionInput {
+                    description: "Criterion".to_string(),
+                    verification: None,
+                    test_file: None,
+                }).expect("Failed to create");
+
+                // Delete feature (cascades to session -> tasks -> criteria)
+                db.delete_feature(feature.id).expect("Failed to delete");
+
+                let found = db.get_criterion(criterion.id).expect("Query failed");
+                assert!(found.is_none());
+            }
+        }
+    }
+}
