@@ -16,6 +16,7 @@ async fn create_test_project(server: &TestServer) -> Project {
         .json(&CreateProjectInput {
             name: "Test Project".to_string(),
             description: None,
+            instructions: None,
         })
         .await
         .json::<Project>()

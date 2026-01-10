@@ -12,6 +12,8 @@ pub struct Project {
     pub id: Uuid,
     pub name: String,
     pub description: Option<String>,
+    /// Project-wide instructions for AI agents (coding guidelines, conventions, etc.).
+    pub instructions: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -30,6 +32,8 @@ pub struct ProjectDirectory {
     pub git_remote: Option<String>,
     /// Whether this is the primary directory for the project.
     pub is_primary: bool,
+    /// Directory-specific instructions for AI agents (build commands, test commands, etc.).
+    pub instructions: Option<String>,
     pub created_at: DateTime<Utc>,
 }
 
@@ -38,6 +42,7 @@ pub struct ProjectDirectory {
 pub struct CreateProjectInput {
     pub name: String,
     pub description: Option<String>,
+    pub instructions: Option<String>,
 }
 
 /// Input for updating an existing project. All fields are optional for partial updates.
@@ -45,6 +50,7 @@ pub struct CreateProjectInput {
 pub struct UpdateProjectInput {
     pub name: Option<String>,
     pub description: Option<String>,
+    pub instructions: Option<String>,
 }
 
 /// Input for adding a directory to a project.
@@ -54,6 +60,7 @@ pub struct AddDirectoryInput {
     pub git_remote: Option<String>,
     #[serde(default)]
     pub is_primary: bool,
+    pub instructions: Option<String>,
 }
 
 /// Input for updating an existing directory. All fields are optional for partial updates.
@@ -62,6 +69,7 @@ pub struct UpdateDirectoryInput {
     pub path: Option<String>,
     pub git_remote: Option<String>,
     pub is_primary: Option<bool>,
+    pub instructions: Option<String>,
 }
 
 /// A project with its associated directories, used for detailed responses.

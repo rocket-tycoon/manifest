@@ -633,6 +633,11 @@ components:
           type: string
           nullable: true
           example: "Living feature documentation server"
+        instructions:
+          type: string
+          nullable: true
+          description: Project-wide instructions for AI agents (coding guidelines, conventions, etc.)
+          example: "Use Result<T,E> for errors. Follow coding-guidelines.md."
         created_at:
           type: string
           format: date-time
@@ -650,6 +655,10 @@ components:
         description:
           type: string
           nullable: true
+        instructions:
+          type: string
+          nullable: true
+          description: Project-wide instructions for AI agents
 
     UpdateProjectInput:
       type: object
@@ -659,6 +668,10 @@ components:
         description:
           type: string
           nullable: true
+        instructions:
+          type: string
+          nullable: true
+          description: Project-wide instructions for AI agents
 
     ProjectDirectory:
       type: object
@@ -680,6 +693,11 @@ components:
         is_primary:
           type: boolean
           default: false
+        instructions:
+          type: string
+          nullable: true
+          description: Directory-specific instructions for AI agents (build commands, test commands, etc.)
+          example: "Run tests with: cargo test. Build with: cargo build --release"
         created_at:
           type: string
           format: date-time
@@ -697,6 +715,10 @@ components:
         is_primary:
           type: boolean
           default: false
+        instructions:
+          type: string
+          nullable: true
+          description: Directory-specific instructions for AI agents
 
     ProjectWithDirectories:
       type: object
@@ -710,6 +732,10 @@ components:
         description:
           type: string
           nullable: true
+        instructions:
+          type: string
+          nullable: true
+          description: Project-wide instructions for AI agents
         created_at:
           type: string
           format: date-time

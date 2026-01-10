@@ -50,7 +50,7 @@ impl Database {
     pub fn get_all_projects(&self) -> Result<Vec<Project>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, name, description, created_at, updated_at
+            "SELECT id, name, description, instructions, created_at, updated_at
              FROM projects ORDER BY name"
         )?;
 
@@ -59,8 +59,9 @@ impl Database {
                 id: parse_uuid(row.get::<_, String>(0)?),
                 name: row.get(1)?,
                 description: row.get(2)?,
-                created_at: parse_datetime(row.get::<_, String>(3)?),
-                updated_at: parse_datetime(row.get::<_, String>(4)?),
+                instructions: row.get(3)?,
+                created_at: parse_datetime(row.get::<_, String>(4)?),
+                updated_at: parse_datetime(row.get::<_, String>(5)?),
             })
         })?.collect::<Result<Vec<_>, _>>()?;
 
@@ -70,7 +71,7 @@ impl Database {
     pub fn get_project(&self, id: Uuid) -> Result<Option<Project>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, name, description, created_at, updated_at
+            "SELECT id, name, description, instructions, created_at, updated_at
              FROM projects WHERE id = ?"
         )?;
 
@@ -80,8 +81,9 @@ impl Database {
                 id: parse_uuid(row.get::<_, String>(0)?),
                 name: row.get(1)?,
                 description: row.get(2)?,
-                created_at: parse_datetime(row.get::<_, String>(3)?),
-                updated_at: parse_datetime(row.get::<_, String>(4)?),
+                instructions: row.get(3)?,
+                created_at: parse_datetime(row.get::<_, String>(4)?),
+                updated_at: parse_datetime(row.get::<_, String>(5)?),
             }))
         } else {
             Ok(None)
@@ -94,12 +96,13 @@ impl Database {
         let now = Utc::now();
 
         conn.execute(
-            "INSERT INTO projects (id, name, description, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO projects (id, name, description, instructions, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?)",
             (
                 id.to_string(),
                 &input.name,
                 &input.description,
+                &input.instructions,
                 now.to_rfc3339(),
                 now.to_rfc3339(),
             ),
@@ -109,6 +112,7 @@ impl Database {
             id,
             name: input.name,
             description: input.description,
+            instructions: input.instructions,
             created_at: now,
             updated_at: now,
         })
@@ -125,12 +129,14 @@ impl Database {
         let now = Utc::now();
         let name = input.name.unwrap_or(existing.name);
         let description = input.description.or(existing.description);
+        let instructions = input.instructions.or(existing.instructions);
 
         conn.execute(
-            "UPDATE projects SET name = ?, description = ?, updated_at = ? WHERE id = ?",
+            "UPDATE projects SET name = ?, description = ?, instructions = ?, updated_at = ? WHERE id = ?",
             (
                 &name,
                 &description,
+                &instructions,
                 now.to_rfc3339(),
                 id.to_string(),
             ),
@@ -140,6 +146,7 @@ impl Database {
             id,
             name,
             description,
+            instructions,
             created_at: existing.created_at,
             updated_at: now,
         }))
@@ -158,7 +165,7 @@ impl Database {
     pub fn get_project_directories(&self, project_id: Uuid) -> Result<Vec<ProjectDirectory>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, project_id, path, git_remote, is_primary, created_at
+            "SELECT id, project_id, path, git_remote, is_primary, instructions, created_at
              FROM project_directories WHERE project_id = ? ORDER BY is_primary DESC, path"
         )?;
 
@@ -169,7 +176,8 @@ impl Database {
                 path: row.get(2)?,
                 git_remote: row.get(3)?,
                 is_primary: row.get::<_, i32>(4)? != 0,
-                created_at: parse_datetime(row.get::<_, String>(5)?),
+                instructions: row.get(5)?,
+                created_at: parse_datetime(row.get::<_, String>(6)?),
             })
         })?.collect::<Result<Vec<_>, _>>()?;
 
@@ -185,14 +193,15 @@ impl Database {
         let now = Utc::now();
 
         conn.execute(
-            "INSERT INTO project_directories (id, project_id, path, git_remote, is_primary, created_at)
-             VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO project_directories (id, project_id, path, git_remote, is_primary, instructions, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?)",
             (
                 id.to_string(),
                 project_id.to_string(),
                 &input.path,
                 &input.git_remote,
                 if input.is_primary { 1 } else { 0 },
+                &input.instructions,
                 now.to_rfc3339(),
             ),
         )?;
@@ -203,6 +212,7 @@ impl Database {
             path: input.path,
             git_remote: input.git_remote,
             is_primary: input.is_primary,
+            instructions: input.instructions,
             created_at: now,
         })
     }

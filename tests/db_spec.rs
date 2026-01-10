@@ -7,6 +7,7 @@ fn create_test_project(db: &Database) -> Project {
     db.create_project(CreateProjectInput {
         name: "Test Project".to_string(),
         description: None,
+        instructions: None,
     }).expect("Failed to create project")
 }
 
@@ -22,6 +23,7 @@ speculate! {
                 let project = db.create_project(CreateProjectInput {
                     name: "My Project".to_string(),
                     description: None,
+                    instructions: None,
                 }).expect("Failed to create project");
 
                 assert_eq!(project.name, "My Project");
@@ -32,10 +34,12 @@ speculate! {
                 let project = db.create_project(CreateProjectInput {
                     name: "Full Project".to_string(),
                     description: Some("A complete project".to_string()),
+                    instructions: Some("Use cargo test to run tests".to_string()),
                 }).expect("Failed to create project");
 
                 assert_eq!(project.name, "Full Project");
                 assert_eq!(project.description, Some("A complete project".to_string()));
+                assert_eq!(project.instructions, Some("Use cargo test to run tests".to_string()));
             }
         }
 
@@ -49,6 +53,7 @@ speculate! {
                 let created = db.create_project(CreateProjectInput {
                     name: "Test".to_string(),
                     description: None,
+                    instructions: None,
                 }).expect("Failed to create");
 
                 let found = db.get_project(created.id).expect("Query failed");
@@ -67,11 +72,13 @@ speculate! {
                 db.create_project(CreateProjectInput {
                     name: "Zebra".to_string(),
                     description: None,
+                    instructions: None,
                 }).expect("Failed to create");
 
                 db.create_project(CreateProjectInput {
                     name: "Alpha".to_string(),
                     description: None,
+                    instructions: None,
                 }).expect("Failed to create");
 
                 let projects = db.get_all_projects().expect("Query failed");
@@ -110,11 +117,13 @@ speculate! {
                     path: "/home/user/project".to_string(),
                     git_remote: Some("git@github.com:user/project.git".to_string()),
                     is_primary: true,
+                    instructions: Some("Run npm test".to_string()),
                 }).expect("Failed to add directory");
 
                 assert_eq!(dir.project_id, project.id);
                 assert_eq!(dir.path, "/home/user/project");
                 assert!(dir.is_primary);
+                assert_eq!(dir.instructions, Some("Run npm test".to_string()));
             }
         }
 
@@ -126,12 +135,14 @@ speculate! {
                     path: "/b/path".to_string(),
                     git_remote: None,
                     is_primary: false,
+                    instructions: None,
                 }).expect("Failed");
 
                 db.add_project_directory(project.id, AddDirectoryInput {
                     path: "/a/path".to_string(),
                     git_remote: None,
                     is_primary: true,
+                    instructions: None,
                 }).expect("Failed");
 
                 let dirs = db.get_project_directories(project.id).expect("Query failed");

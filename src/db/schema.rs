@@ -13,6 +13,11 @@ const MIGRATIONS: &[Migration] = &[
         name: "initial",
         sql: include_str!("migrations/001_initial.sql"),
     },
+    Migration {
+        version: "002",
+        name: "add_instructions",
+        sql: include_str!("migrations/002_add_instructions.sql"),
+    },
 ];
 
 pub fn run_migrations(conn: &Connection) -> Result<()> {
@@ -119,9 +124,9 @@ mod tests {
         ).unwrap();
         assert_eq!(count, 1);
 
-        // Verify migration was recorded
+        // Verify all migrations were recorded
         let versions = get_applied_migrations(&conn).unwrap();
-        assert_eq!(versions, vec!["001"]);
+        assert_eq!(versions, vec!["001", "002"]);
     }
 
     #[test]
@@ -131,20 +136,25 @@ mod tests {
         run_migrations(&conn).unwrap(); // Should not fail
 
         let versions = get_applied_migrations(&conn).unwrap();
-        assert_eq!(versions, vec!["001"]);
+        assert_eq!(versions, vec!["001", "002"]);
     }
 
     #[test]
     fn test_existing_db_gets_baseline() {
         let conn = Connection::open_in_memory().unwrap();
 
-        // Simulate existing database by creating features table directly
-        conn.execute_batch("CREATE TABLE features (id TEXT PRIMARY KEY)").unwrap();
+        // Simulate existing database by creating core tables directly
+        // Must include projects table for migration 002 to work
+        conn.execute_batch("
+            CREATE TABLE features (id TEXT PRIMARY KEY);
+            CREATE TABLE projects (id TEXT PRIMARY KEY, name TEXT, description TEXT, created_at TEXT, updated_at TEXT);
+            CREATE TABLE project_directories (id TEXT PRIMARY KEY, project_id TEXT, path TEXT, git_remote TEXT, is_primary INTEGER, created_at TEXT);
+        ").unwrap();
 
-        // Run migrations - should detect existing DB and baseline
+        // Run migrations - should detect existing DB and baseline, then apply 002
         run_migrations(&conn).unwrap();
 
         let versions = get_applied_migrations(&conn).unwrap();
-        assert_eq!(versions, vec!["001"]);
+        assert_eq!(versions, vec!["001", "002"]);
     }
 }
