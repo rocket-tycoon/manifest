@@ -40,8 +40,7 @@ impl Database {
 
     pub fn migrate(&self) -> Result<()> {
         let conn = self.conn.lock().unwrap();
-        conn.execute_batch(schema::SCHEMA)?;
-        Ok(())
+        schema::run_migrations(&conn)
     }
 
     // ============================================================
@@ -511,11 +510,12 @@ impl Database {
             let task_id = Uuid::new_v4();
 
             conn.execute(
-                "INSERT INTO tasks (id, session_id, title, scope, status, agent_type, created_at)
-                 VALUES (?, ?, ?, ?, 'pending', ?, ?)",
+                "INSERT INTO tasks (id, session_id, parent_id, title, scope, status, agent_type, created_at)
+                 VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)",
                 (
                     task_id.to_string(),
                     session_id.to_string(),
+                    task_input.parent_id.map(|u| u.to_string()),
                     &task_input.title,
                     &task_input.scope,
                     task_input.agent_type.as_str(),
@@ -526,6 +526,7 @@ impl Database {
             tasks.push(Task {
                 id: task_id,
                 session_id,
+                parent_id: task_input.parent_id,
                 title: task_input.title,
                 scope: task_input.scope,
                 status: TaskStatus::Pending,
@@ -570,19 +571,6 @@ impl Database {
             anyhow::bail!("Session is not active");
         }
 
-        // Gather all tasks and their completed criteria
-        let tasks = self.get_tasks_by_session(id)?;
-        let mut completed_criteria: Vec<String> = Vec::new();
-
-        for task in &tasks {
-            let criteria = self.get_criteria_by_task(task.id)?;
-            for criterion in criteria {
-                if criterion.status == CriterionStatus::Complete {
-                    completed_criteria.push(criterion.description);
-                }
-            }
-        }
-
         // Create history entry
         let history_entry = self.create_history_entry(CreateHistoryInput {
             feature_id: session.feature_id,
@@ -592,7 +580,7 @@ impl Database {
             author: "session".to_string(),
         })?;
 
-        // Delete tasks (criteria cascade-deleted automatically)
+        // Delete tasks
         let conn = self.conn.lock().unwrap();
         conn.execute("DELETE FROM tasks WHERE session_id = ?", [id.to_string()])?;
 
@@ -625,7 +613,7 @@ impl Database {
     pub fn get_task(&self, id: Uuid) -> Result<Option<Task>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, session_id, title, scope, status, agent_type, worktree_path, branch, created_at
+            "SELECT id, session_id, parent_id, title, scope, status, agent_type, worktree_path, branch, created_at
              FROM tasks WHERE id = ?"
         )?;
 
@@ -634,13 +622,14 @@ impl Database {
             Ok(Some(Task {
                 id: parse_uuid(row.get::<_, String>(0)?),
                 session_id: parse_uuid(row.get::<_, String>(1)?),
-                title: row.get(2)?,
-                scope: row.get(3)?,
-                status: TaskStatus::from_str(&row.get::<_, String>(4)?).unwrap_or(TaskStatus::Pending),
-                agent_type: AgentType::from_str(&row.get::<_, String>(5)?).unwrap_or(AgentType::Claude),
-                worktree_path: row.get(6)?,
-                branch: row.get(7)?,
-                created_at: parse_datetime(row.get::<_, String>(8)?),
+                parent_id: row.get::<_, Option<String>>(2)?.map(parse_uuid),
+                title: row.get(3)?,
+                scope: row.get(4)?,
+                status: TaskStatus::from_str(&row.get::<_, String>(5)?).unwrap_or(TaskStatus::Pending),
+                agent_type: AgentType::from_str(&row.get::<_, String>(6)?).unwrap_or(AgentType::Claude),
+                worktree_path: row.get(7)?,
+                branch: row.get(8)?,
+                created_at: parse_datetime(row.get::<_, String>(9)?),
             }))
         } else {
             Ok(None)
@@ -650,21 +639,47 @@ impl Database {
     pub fn get_tasks_by_session(&self, session_id: Uuid) -> Result<Vec<Task>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, session_id, title, scope, status, agent_type, worktree_path, branch, created_at
-             FROM tasks WHERE session_id = ?"
+            "SELECT id, session_id, parent_id, title, scope, status, agent_type, worktree_path, branch, created_at
+             FROM tasks WHERE session_id = ? ORDER BY created_at"
         )?;
 
         let tasks = stmt.query_map([session_id.to_string()], |row| {
             Ok(Task {
                 id: parse_uuid(row.get::<_, String>(0)?),
                 session_id: parse_uuid(row.get::<_, String>(1)?),
-                title: row.get(2)?,
-                scope: row.get(3)?,
-                status: TaskStatus::from_str(&row.get::<_, String>(4)?).unwrap_or(TaskStatus::Pending),
-                agent_type: AgentType::from_str(&row.get::<_, String>(5)?).unwrap_or(AgentType::Claude),
-                worktree_path: row.get(6)?,
-                branch: row.get(7)?,
-                created_at: parse_datetime(row.get::<_, String>(8)?),
+                parent_id: row.get::<_, Option<String>>(2)?.map(parse_uuid),
+                title: row.get(3)?,
+                scope: row.get(4)?,
+                status: TaskStatus::from_str(&row.get::<_, String>(5)?).unwrap_or(TaskStatus::Pending),
+                agent_type: AgentType::from_str(&row.get::<_, String>(6)?).unwrap_or(AgentType::Claude),
+                worktree_path: row.get(7)?,
+                branch: row.get(8)?,
+                created_at: parse_datetime(row.get::<_, String>(9)?),
+            })
+        })?.collect::<Result<Vec<_>, _>>()?;
+
+        Ok(tasks)
+    }
+
+    pub fn get_task_children(&self, parent_id: Uuid) -> Result<Vec<Task>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, session_id, parent_id, title, scope, status, agent_type, worktree_path, branch, created_at
+             FROM tasks WHERE parent_id = ? ORDER BY created_at"
+        )?;
+
+        let tasks = stmt.query_map([parent_id.to_string()], |row| {
+            Ok(Task {
+                id: parse_uuid(row.get::<_, String>(0)?),
+                session_id: parse_uuid(row.get::<_, String>(1)?),
+                parent_id: row.get::<_, Option<String>>(2)?.map(parse_uuid),
+                title: row.get(3)?,
+                scope: row.get(4)?,
+                status: TaskStatus::from_str(&row.get::<_, String>(5)?).unwrap_or(TaskStatus::Pending),
+                agent_type: AgentType::from_str(&row.get::<_, String>(6)?).unwrap_or(AgentType::Claude),
+                worktree_path: row.get(7)?,
+                branch: row.get(8)?,
+                created_at: parse_datetime(row.get::<_, String>(9)?),
             })
         })?.collect::<Result<Vec<_>, _>>()?;
 
@@ -697,129 +712,6 @@ impl Database {
         params.push(Box::new(id.to_string()));
 
         let sql = format!("UPDATE tasks SET {} WHERE id = ?", updates.join(", "));
-        let params_ref: Vec<&dyn rusqlite::ToSql> = params.iter().map(|p| p.as_ref()).collect();
-        let rows = conn.execute(&sql, params_ref.as_slice())?;
-
-        Ok(rows > 0)
-    }
-
-    // ============================================================
-    // Criterion operations
-    // ============================================================
-
-    pub fn get_criterion(&self, id: Uuid) -> Result<Option<Criterion>> {
-        let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare(
-            "SELECT id, task_id, description, status, verification, test_file, blocked_reason, completed_at, created_at
-             FROM task_criteria WHERE id = ?"
-        )?;
-
-        let mut rows = stmt.query([id.to_string()])?;
-        if let Some(row) = rows.next()? {
-            Ok(Some(Criterion {
-                id: parse_uuid(row.get::<_, String>(0)?),
-                task_id: parse_uuid(row.get::<_, String>(1)?),
-                description: row.get(2)?,
-                status: CriterionStatus::from_str(&row.get::<_, String>(3)?).unwrap_or(CriterionStatus::Pending),
-                verification: VerificationType::from_str(&row.get::<_, String>(4)?).unwrap_or(VerificationType::Manual),
-                test_file: row.get(5)?,
-                blocked_reason: row.get(6)?,
-                completed_at: row.get::<_, Option<String>>(7)?.map(parse_datetime),
-                created_at: parse_datetime(row.get::<_, String>(8)?),
-            }))
-        } else {
-            Ok(None)
-        }
-    }
-
-    pub fn get_criteria_by_task(&self, task_id: Uuid) -> Result<Vec<Criterion>> {
-        let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare(
-            "SELECT id, task_id, description, status, verification, test_file, blocked_reason, completed_at, created_at
-             FROM task_criteria WHERE task_id = ? ORDER BY created_at"
-        )?;
-
-        let criteria = stmt.query_map([task_id.to_string()], |row| {
-            Ok(Criterion {
-                id: parse_uuid(row.get::<_, String>(0)?),
-                task_id: parse_uuid(row.get::<_, String>(1)?),
-                description: row.get(2)?,
-                status: CriterionStatus::from_str(&row.get::<_, String>(3)?).unwrap_or(CriterionStatus::Pending),
-                verification: VerificationType::from_str(&row.get::<_, String>(4)?).unwrap_or(VerificationType::Manual),
-                test_file: row.get(5)?,
-                blocked_reason: row.get(6)?,
-                completed_at: row.get::<_, Option<String>>(7)?.map(parse_datetime),
-                created_at: parse_datetime(row.get::<_, String>(8)?),
-            })
-        })?.collect::<Result<Vec<_>, _>>()?;
-
-        Ok(criteria)
-    }
-
-    pub fn create_criterion(&self, task_id: Uuid, input: CreateCriterionInput) -> Result<Criterion> {
-        // Verify task exists
-        self.get_task(task_id)?
-            .ok_or_else(|| anyhow::anyhow!("Task not found"))?;
-
-        let conn = self.conn.lock().unwrap();
-        let id = Uuid::new_v4();
-        let now = Utc::now();
-        let verification = input.verification.unwrap_or(VerificationType::Manual);
-
-        conn.execute(
-            "INSERT INTO task_criteria (id, task_id, description, status, verification, test_file, created_at)
-             VALUES (?, ?, ?, 'pending', ?, ?, ?)",
-            (
-                id.to_string(),
-                task_id.to_string(),
-                &input.description,
-                verification.as_str(),
-                &input.test_file,
-                now.to_rfc3339(),
-            ),
-        )?;
-
-        Ok(Criterion {
-            id,
-            task_id,
-            description: input.description,
-            status: CriterionStatus::Pending,
-            verification,
-            test_file: input.test_file,
-            blocked_reason: None,
-            completed_at: None,
-            created_at: now,
-        })
-    }
-
-    pub fn update_criterion(&self, id: Uuid, input: UpdateCriterionInput) -> Result<bool> {
-        let conn = self.conn.lock().unwrap();
-
-        let mut updates = Vec::new();
-        let mut params: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
-
-        if let Some(status) = input.status {
-            updates.push("status = ?");
-            params.push(Box::new(status.as_str().to_string()));
-
-            // Set completed_at when marking complete
-            if status == CriterionStatus::Complete {
-                updates.push("completed_at = ?");
-                params.push(Box::new(Utc::now().to_rfc3339()));
-            }
-        }
-        if let Some(blocked_reason) = input.blocked_reason {
-            updates.push("blocked_reason = ?");
-            params.push(Box::new(blocked_reason));
-        }
-
-        if updates.is_empty() {
-            return Ok(false);
-        }
-
-        params.push(Box::new(id.to_string()));
-
-        let sql = format!("UPDATE task_criteria SET {} WHERE id = ?", updates.join(", "));
         let params_ref: Vec<&dyn rusqlite::ToSql> = params.iter().map(|p| p.as_ref()).collect();
         let rows = conn.execute(&sql, params_ref.as_slice())?;
 

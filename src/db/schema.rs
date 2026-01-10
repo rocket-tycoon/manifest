@@ -1,97 +1,150 @@
-pub const SCHEMA: &str = r#"
-CREATE TABLE IF NOT EXISTS projects (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    description TEXT,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-);
+use anyhow::{Context, Result};
+use rusqlite::Connection;
 
-CREATE TABLE IF NOT EXISTS project_directories (
-    id TEXT PRIMARY KEY,
-    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-    path TEXT NOT NULL,
-    git_remote TEXT,
-    is_primary INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT NOT NULL
-);
+struct Migration {
+    version: &'static str,
+    name: &'static str,
+    sql: &'static str,
+}
 
-CREATE TABLE IF NOT EXISTS features (
-    id TEXT PRIMARY KEY,
-    project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-    parent_id TEXT REFERENCES features(id) ON DELETE CASCADE,
-    title TEXT NOT NULL,
-    story TEXT,
-    details TEXT,
-    state TEXT NOT NULL DEFAULT 'proposed' CHECK (state IN ('proposed', 'specified', 'implemented', 'deprecated')),
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-);
+const MIGRATIONS: &[Migration] = &[
+    Migration {
+        version: "001",
+        name: "initial",
+        sql: include_str!("migrations/001_initial.sql"),
+    },
+];
 
-CREATE TABLE IF NOT EXISTS feature_history (
-    id TEXT PRIMARY KEY,
-    feature_id TEXT REFERENCES features(id) ON DELETE CASCADE,
-    session_id TEXT,
-    summary TEXT NOT NULL,
-    criteria_completed JSON,
-    files_changed JSON,
-    author TEXT NOT NULL,
-    created_at TEXT NOT NULL
-);
+pub fn run_migrations(conn: &Connection) -> Result<()> {
+    // Create migrations tracking table
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS schema_migrations (
+            version TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            applied_at TEXT NOT NULL
+        )"
+    ).context("Failed to create schema_migrations table")?;
 
-CREATE TABLE IF NOT EXISTS implementation_notes (
-    id TEXT PRIMARY KEY,
-    feature_id TEXT REFERENCES features(id) ON DELETE CASCADE,
-    task_id TEXT REFERENCES tasks(id) ON DELETE CASCADE,
-    content TEXT NOT NULL,
-    files_changed JSON,
-    created_at TEXT NOT NULL
-);
+    // Check for existing database without version tracking (upgrade path)
+    let needs_baseline = check_needs_baseline(conn)?;
+    if needs_baseline {
+        mark_migration_applied(conn, "001", "initial")?;
+        tracing::info!("Detected existing database, marked migration 001 as applied");
+    }
 
-CREATE TABLE IF NOT EXISTS sessions (
-    id TEXT PRIMARY KEY,
-    feature_id TEXT REFERENCES features(id) ON DELETE CASCADE,
-    goal TEXT NOT NULL,
-    status TEXT NOT NULL CHECK (status IN ('active', 'completed', 'failed')),
-    feature_version_before INTEGER,
-    feature_version_after INTEGER,
-    created_at TEXT NOT NULL,
-    completed_at TEXT
-);
+    // Get applied migrations
+    let applied = get_applied_migrations(conn)?;
 
-CREATE TABLE IF NOT EXISTS tasks (
-    id TEXT PRIMARY KEY,
-    session_id TEXT REFERENCES sessions(id) ON DELETE CASCADE,
-    title TEXT NOT NULL,
-    scope TEXT,
-    status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'running', 'completed', 'failed')),
-    agent_type TEXT CHECK (agent_type IN ('claude', 'gemini', 'codex')),
-    worktree_path TEXT,
-    branch TEXT,
-    created_at TEXT NOT NULL
-);
+    // Run pending migrations
+    for migration in MIGRATIONS {
+        if !applied.contains(&migration.version.to_string()) {
+            apply_migration(conn, migration)?;
+        }
+    }
 
-CREATE TABLE IF NOT EXISTS task_criteria (
-    id TEXT PRIMARY KEY,
-    task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
-    description TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'complete', 'blocked')),
-    verification TEXT NOT NULL DEFAULT 'manual' CHECK (verification IN ('manual', 'test')),
-    test_file TEXT,
-    blocked_reason TEXT,
-    completed_at TEXT,
-    created_at TEXT NOT NULL
-);
+    Ok(())
+}
 
-CREATE INDEX IF NOT EXISTS idx_project_directories_project ON project_directories(project_id);
-CREATE INDEX IF NOT EXISTS idx_features_project ON features(project_id);
-CREATE INDEX IF NOT EXISTS idx_features_parent ON features(parent_id);
-CREATE INDEX IF NOT EXISTS idx_sessions_feature ON sessions(feature_id);
-CREATE INDEX IF NOT EXISTS idx_tasks_session ON tasks(session_id);
-CREATE INDEX IF NOT EXISTS idx_history_feature ON feature_history(feature_id);
-CREATE INDEX IF NOT EXISTS idx_criteria_task ON task_criteria(task_id);
+fn check_needs_baseline(conn: &Connection) -> Result<bool> {
+    // If schema_migrations is empty but tables exist, this is an existing database
+    let migration_count: i32 = conn.query_row(
+        "SELECT COUNT(*) FROM schema_migrations",
+        [],
+        |row| row.get(0),
+    )?;
 
--- Only one active session per feature at a time
-CREATE UNIQUE INDEX IF NOT EXISTS idx_one_active_session
-    ON sessions(feature_id) WHERE status = 'active';
-"#;
+    if migration_count > 0 {
+        return Ok(false);
+    }
+
+    // Check if core tables exist (features table is a good indicator)
+    let tables_exist: i32 = conn.query_row(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='features'",
+        [],
+        |row| row.get(0),
+    )?;
+
+    Ok(tables_exist > 0)
+}
+
+fn get_applied_migrations(conn: &Connection) -> Result<Vec<String>> {
+    let mut stmt = conn.prepare("SELECT version FROM schema_migrations ORDER BY version")?;
+    let versions = stmt
+        .query_map([], |row| row.get(0))?
+        .collect::<Result<Vec<String>, _>>()?;
+    Ok(versions)
+}
+
+fn mark_migration_applied(conn: &Connection, version: &str, name: &str) -> Result<()> {
+    let now = chrono::Utc::now().to_rfc3339();
+    conn.execute(
+        "INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)",
+        (version, name, &now),
+    )?;
+    Ok(())
+}
+
+fn apply_migration(conn: &Connection, migration: &Migration) -> Result<()> {
+    tracing::info!("Applying migration {}: {}", migration.version, migration.name);
+
+    // Run migration in a transaction
+    conn.execute_batch(&format!(
+        "BEGIN TRANSACTION; {} COMMIT;",
+        migration.sql
+    )).with_context(|| format!(
+        "Failed to apply migration {}: {}",
+        migration.version, migration.name
+    ))?;
+
+    mark_migration_applied(conn, migration.version, migration.name)?;
+
+    tracing::info!("Migration {} applied successfully", migration.version);
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_migrations_run_on_fresh_db() {
+        let conn = Connection::open_in_memory().unwrap();
+        run_migrations(&conn).unwrap();
+
+        // Verify tables exist
+        let count: i32 = conn.query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='features'",
+            [],
+            |row| row.get(0),
+        ).unwrap();
+        assert_eq!(count, 1);
+
+        // Verify migration was recorded
+        let versions = get_applied_migrations(&conn).unwrap();
+        assert_eq!(versions, vec!["001"]);
+    }
+
+    #[test]
+    fn test_migrations_are_idempotent() {
+        let conn = Connection::open_in_memory().unwrap();
+        run_migrations(&conn).unwrap();
+        run_migrations(&conn).unwrap(); // Should not fail
+
+        let versions = get_applied_migrations(&conn).unwrap();
+        assert_eq!(versions, vec!["001"]);
+    }
+
+    #[test]
+    fn test_existing_db_gets_baseline() {
+        let conn = Connection::open_in_memory().unwrap();
+
+        // Simulate existing database by creating features table directly
+        conn.execute_batch("CREATE TABLE features (id TEXT PRIMARY KEY)").unwrap();
+
+        // Run migrations - should detect existing DB and baseline
+        run_migrations(&conn).unwrap();
+
+        let versions = get_applied_migrations(&conn).unwrap();
+        assert_eq!(versions, vec!["001"]);
+    }
+}
