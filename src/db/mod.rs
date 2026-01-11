@@ -1,6 +1,7 @@
 mod schema;
 
 use std::path::PathBuf;
+use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
@@ -16,7 +17,10 @@ pub struct Database {
 
 impl Database {
     pub fn open(path: PathBuf) -> Result<Self> {
-        std::fs::create_dir_all(path.parent().unwrap())?;
+        let parent = path
+            .parent()
+            .ok_or_else(|| anyhow::anyhow!("Database path has no parent directory"))?;
+        std::fs::create_dir_all(parent)?;
         let conn = Connection::open(&path)?;
         conn.pragma_update(None, "journal_mode", "WAL")?;
         Ok(Self {
@@ -39,7 +43,7 @@ impl Database {
     }
 
     pub fn migrate(&self) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().expect("database lock poisoned");
         schema::run_migrations(&conn)
     }
 
@@ -48,7 +52,7 @@ impl Database {
     // ============================================================
 
     pub fn get_all_projects(&self) -> Result<Vec<Project>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().expect("database lock poisoned");
         let mut stmt = conn.prepare(
             "SELECT id, name, description, instructions, created_at, updated_at
              FROM projects ORDER BY name",
@@ -71,7 +75,7 @@ impl Database {
     }
 
     pub fn get_project(&self, id: Uuid) -> Result<Option<Project>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().expect("database lock poisoned");
         let mut stmt = conn.prepare(
             "SELECT id, name, description, instructions, created_at, updated_at
              FROM projects WHERE id = ?",
@@ -93,7 +97,7 @@ impl Database {
     }
 
     pub fn create_project(&self, input: CreateProjectInput) -> Result<Project> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().expect("database lock poisoned");
         let id = Uuid::new_v4();
         let now = Utc::now();
 
@@ -121,13 +125,11 @@ impl Database {
     }
 
     pub fn update_project(&self, id: Uuid, input: UpdateProjectInput) -> Result<Option<Project>> {
-        let existing = self.get_project(id)?;
-        if existing.is_none() {
+        let Some(existing) = self.get_project(id)? else {
             return Ok(None);
-        }
-        let existing = existing.unwrap();
+        };
 
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().expect("database lock poisoned");
         let now = Utc::now();
         let name = input.name.unwrap_or(existing.name);
         let description = input.description.or(existing.description);
@@ -155,7 +157,7 @@ impl Database {
     }
 
     pub fn delete_project(&self, id: Uuid) -> Result<bool> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().expect("database lock poisoned");
         let rows = conn.execute("DELETE FROM projects WHERE id = ?", [id.to_string()])?;
         Ok(rows > 0)
     }
@@ -165,7 +167,7 @@ impl Database {
     // ============================================================
 
     pub fn get_project_directories(&self, project_id: Uuid) -> Result<Vec<ProjectDirectory>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().expect("database lock poisoned");
         let mut stmt = conn.prepare(
             "SELECT id, project_id, path, git_remote, is_primary, instructions, created_at
              FROM project_directories WHERE project_id = ? ORDER BY is_primary DESC, path",
@@ -196,7 +198,7 @@ impl Database {
         self.get_project(project_id)?
             .ok_or_else(|| anyhow::anyhow!("Project not found"))?;
 
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().expect("database lock poisoned");
         let id = Uuid::new_v4();
         let now = Utc::now();
 
@@ -226,7 +228,7 @@ impl Database {
     }
 
     pub fn remove_project_directory(&self, id: Uuid) -> Result<bool> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().expect("database lock poisoned");
         let rows = conn.execute(
             "DELETE FROM project_directories WHERE id = ?",
             [id.to_string()],
@@ -253,7 +255,7 @@ impl Database {
     // ============================================================
 
     pub fn get_all_features(&self) -> Result<Vec<Feature>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().expect("database lock poisoned");
         let mut stmt = conn.prepare(
             "SELECT id, project_id, parent_id, title, story, details, state, created_at, updated_at
              FROM features ORDER BY title",
@@ -280,7 +282,7 @@ impl Database {
     }
 
     pub fn get_features_by_project(&self, project_id: Uuid) -> Result<Vec<Feature>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().expect("database lock poisoned");
         let mut stmt = conn.prepare(
             "SELECT id, project_id, parent_id, title, story, details, state, created_at, updated_at
              FROM features WHERE project_id = ? ORDER BY title",
@@ -307,7 +309,7 @@ impl Database {
     }
 
     pub fn get_feature(&self, id: Uuid) -> Result<Option<Feature>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().expect("database lock poisoned");
         let mut stmt = conn.prepare(
             "SELECT id, project_id, parent_id, title, story, details, state, created_at, updated_at
              FROM features WHERE id = ?",
@@ -337,7 +339,7 @@ impl Database {
         self.get_project(project_id)?
             .ok_or_else(|| anyhow::anyhow!("Project not found"))?;
 
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().expect("database lock poisoned");
         let id = Uuid::new_v4();
         let now = Utc::now();
         let state = input.state.unwrap_or(FeatureState::Proposed);
@@ -372,13 +374,11 @@ impl Database {
     }
 
     pub fn update_feature(&self, id: Uuid, input: UpdateFeatureInput) -> Result<Option<Feature>> {
-        let existing = self.get_feature(id)?;
-        if existing.is_none() {
+        let Some(existing) = self.get_feature(id)? else {
             return Ok(None);
-        }
-        let existing = existing.unwrap();
+        };
 
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().expect("database lock poisoned");
         let now = Utc::now();
         let title = input.title.unwrap_or(existing.title);
         let story = input.story.or(existing.story);
@@ -413,13 +413,13 @@ impl Database {
     }
 
     pub fn delete_feature(&self, id: Uuid) -> Result<bool> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().expect("database lock poisoned");
         let rows = conn.execute("DELETE FROM features WHERE id = ?", [id.to_string()])?;
         Ok(rows > 0)
     }
 
     pub fn get_root_features(&self, project_id: Uuid) -> Result<Vec<Feature>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().expect("database lock poisoned");
         let mut stmt = conn.prepare(
             "SELECT id, project_id, parent_id, title, story, details, state, created_at, updated_at
              FROM features WHERE project_id = ? AND parent_id IS NULL ORDER BY title",
@@ -446,7 +446,7 @@ impl Database {
     }
 
     pub fn get_children(&self, parent_id: Uuid) -> Result<Vec<Feature>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().expect("database lock poisoned");
         let mut stmt = conn.prepare(
             "SELECT id, project_id, parent_id, title, story, details, state, created_at, updated_at
              FROM features WHERE parent_id = ? ORDER BY title",
@@ -473,7 +473,7 @@ impl Database {
     }
 
     pub fn is_leaf(&self, feature_id: Uuid) -> Result<bool> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().expect("database lock poisoned");
         let count: i32 = conn.query_row(
             "SELECT COUNT(*) FROM features WHERE parent_id = ?",
             [feature_id.to_string()],
@@ -522,7 +522,7 @@ impl Database {
     // ============================================================
 
     pub fn get_session(&self, id: Uuid) -> Result<Option<Session>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().expect("database lock poisoned");
         let mut stmt = conn.prepare(
             "SELECT id, feature_id, goal, status, created_at, completed_at
              FROM sessions WHERE id = ?",
@@ -553,7 +553,7 @@ impl Database {
             anyhow::bail!("Sessions can only be created on leaf features");
         }
 
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().expect("database lock poisoned");
         let session_id = Uuid::new_v4();
         let now = Utc::now();
 
@@ -662,7 +662,7 @@ impl Database {
         })?;
 
         // Delete tasks
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().expect("database lock poisoned");
         conn.execute("DELETE FROM tasks WHERE session_id = ?", [id.to_string()])?;
 
         // Update session status
@@ -704,7 +704,7 @@ impl Database {
     // ============================================================
 
     pub fn get_task(&self, id: Uuid) -> Result<Option<Task>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().expect("database lock poisoned");
         let mut stmt = conn.prepare(
             "SELECT id, session_id, parent_id, title, scope, status, agent_type, worktree_path, branch, created_at
              FROM tasks WHERE id = ?"
@@ -732,7 +732,7 @@ impl Database {
     }
 
     pub fn get_tasks_by_session(&self, session_id: Uuid) -> Result<Vec<Task>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().expect("database lock poisoned");
         let mut stmt = conn.prepare(
             "SELECT id, session_id, parent_id, title, scope, status, agent_type, worktree_path, branch, created_at
              FROM tasks WHERE session_id = ? ORDER BY created_at"
@@ -761,7 +761,7 @@ impl Database {
     }
 
     pub fn get_task_children(&self, parent_id: Uuid) -> Result<Vec<Task>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().expect("database lock poisoned");
         let mut stmt = conn.prepare(
             "SELECT id, session_id, parent_id, title, scope, status, agent_type, worktree_path, branch, created_at
              FROM tasks WHERE parent_id = ? ORDER BY created_at"
@@ -799,7 +799,7 @@ impl Database {
             anyhow::bail!("Cannot add tasks to a completed session");
         }
 
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().expect("database lock poisoned");
         let id = Uuid::new_v4();
         let now = Utc::now();
 
@@ -832,7 +832,7 @@ impl Database {
     }
 
     pub fn update_task(&self, id: Uuid, input: UpdateTaskInput) -> Result<bool> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().expect("database lock poisoned");
 
         let mut updates = Vec::new();
         let mut params: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
@@ -868,7 +868,7 @@ impl Database {
     // ============================================================
 
     pub fn create_history_entry(&self, input: CreateHistoryInput) -> Result<FeatureHistory> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().expect("database lock poisoned");
         let id = Uuid::new_v4();
         let now = Utc::now();
 
@@ -900,7 +900,7 @@ impl Database {
     }
 
     pub fn get_feature_history(&self, feature_id: Uuid) -> Result<Vec<FeatureHistory>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().expect("database lock poisoned");
         let mut stmt = conn.prepare(
             "SELECT id, feature_id, session_id, details, created_at
              FROM feature_history WHERE feature_id = ? ORDER BY created_at DESC",
