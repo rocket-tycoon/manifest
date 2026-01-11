@@ -35,7 +35,8 @@ enum Commands {
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::registry()
         .with(tracing_subscriber::EnvFilter::new(
-            std::env::var("RUST_LOG").unwrap_or_else(|_| "rocket_manifest=debug,tower_http=debug".into()),
+            std::env::var("RUST_LOG")
+                .unwrap_or_else(|_| "rocket_manifest=debug,tower_http=debug".into()),
         ))
         .with(tracing_subscriber::fmt::layer())
         .init();
@@ -52,7 +53,10 @@ async fn main() -> anyhow::Result<()> {
             let app = api::create_router(db);
 
             let listener = tokio::net::TcpListener::bind(format!("127.0.0.1:{}", port)).await?;
-            tracing::info!("RocketManifest server listening on http://127.0.0.1:{}", port);
+            tracing::info!(
+                "RocketManifest server listening on http://127.0.0.1:{}",
+                port
+            );
 
             axum::serve(listener, app).await?;
         }
