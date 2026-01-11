@@ -29,9 +29,9 @@ impl Database {
     }
 
     pub fn open_default() -> Result<Self> {
-        let dirs = directories::ProjectDirs::from("", "", "legion")
+        let dirs = directories::ProjectDirs::from("", "", "rocket-manifest")
             .ok_or_else(|| anyhow::anyhow!("Could not determine data directory"))?;
-        let db_path = dirs.data_dir().join("legion.db");
+        let db_path = dirs.data_dir().join("manifest.db");
         Self::open(db_path)
     }
 

@@ -138,7 +138,7 @@ All routes prefixed with `/api/v1`:
 
 ### Database
 
-- Location: `~/.local/share/legion/legion.db` (via `directories` crate)
+- Location: `~/.local/share/rocket-manifest/manifest.db` (via `directories` crate)
 - Schema auto-migrates on startup via `db.migrate()`
 - All IDs stored as TEXT (UUIDs), dates as RFC3339 strings, content as JSON
 
