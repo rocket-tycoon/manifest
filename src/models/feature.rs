@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -50,14 +52,18 @@ impl FeatureState {
             Self::Deprecated => "deprecated",
         }
     }
+}
 
-    pub fn from_str(s: &str) -> Option<Self> {
+impl FromStr for FeatureState {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "proposed" => Some(Self::Proposed),
-            "specified" => Some(Self::Specified),
-            "implemented" => Some(Self::Implemented),
-            "deprecated" => Some(Self::Deprecated),
-            _ => None,
+            "proposed" => Ok(Self::Proposed),
+            "specified" => Ok(Self::Specified),
+            "implemented" => Ok(Self::Implemented),
+            "deprecated" => Ok(Self::Deprecated),
+            _ => Err(()),
         }
     }
 }

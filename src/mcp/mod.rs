@@ -2,6 +2,8 @@
 
 mod types;
 
+use std::str::FromStr;
+
 pub use types::*;
 
 use rmcp::{
@@ -200,7 +202,7 @@ impl McpServer {
         let req = params.0;
         let session_id = Self::parse_uuid(&req.session_id)?;
 
-        let agent_type = AgentType::from_str(&req.agent_type).ok_or_else(|| {
+        let agent_type = AgentType::from_str(&req.agent_type).map_err(|_| {
             McpError::invalid_params(
                 format!(
                     "Invalid agent_type '{}'. Must be: claude, gemini, or codex",
