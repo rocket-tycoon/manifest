@@ -197,9 +197,9 @@ curl -X POST http://localhost:3000/api/v1/sessions \
 
 | Platform | Location |
 |----------|----------|
-| macOS | `~/.local/share/legion/legion.db` |
-| Linux | `~/.local/share/legion/legion.db` |
-| Windows | `%APPDATA%\legion\legion.db` |
+| macOS | `~/.local/share/rocket-manifest/manifest.db` |
+| Linux | `~/.local/share/rocket-manifest/manifest.db` |
+| Windows | `%APPDATA%\rocket-manifest\manifest.db` |
 
 The database auto-migrates on startup.
 
