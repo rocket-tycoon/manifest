@@ -1061,7 +1061,7 @@ impl McpServer {
     }
 
     #[tool(
-        description = "Create a feature within a project. Features can be hierarchical (parent_id for nesting) or flat. Use 'proposed' state for ideas, 'specified' when ready for implementation. Include story (user story format) and details (technical notes) to guide implementation."
+        description = "Create a feature (system capability) within a project. Name by capability, not by phase or task - e.g., 'Router' not 'Phase 1: Implement Routing'. Use parent_id for domain grouping (e.g., 'Authentication' parent with 'OAuth' and 'Password Login' children). Only leaf features can have implementation sessions. Use priority field for sequencing."
     )]
     async fn create_feature(
         &self,
@@ -1131,22 +1131,60 @@ impl ServerHandler for McpServer {
             instructions: Some(
                 r#"RocketManifest manages feature implementation sessions and tasks.
 
+FEATURE PHILOSOPHY:
+Features are LIVING DOCUMENTATION of system capabilities - not work items to close.
+- Unlike JIRA issues, features persist and evolve with the codebase
+- A feature describes what the system DOES, not what you're DOING
+- Features should make sense to someone reading them years later
+
+FEATURE NAMING:
+- Name by CAPABILITY: "Router", "Request Validation", "OAuth Integration"
+- NOT by sequence: "Phase 1", "Step 2", "Sprint 3 Work"
+- NOT by task: "Implement routing", "Add validation"
+- NOT by artifact: "Documentation", "Tests", "Benchmarks"
+- Parent features are CATEGORIES, children are CAPABILITIES within that category
+
+FEATURE HIERARCHY:
+- Use hierarchy for DOMAIN DECOMPOSITION, not implementation phases
+- Parent = capability area (e.g., "Authentication")
+- Children = specific capabilities (e.g., "Password Login", "OAuth", "Session Management")
+- Only LEAF features can have sessions - parents are organizational
+- Flat is fine for small projects; hierarchy helps navigation in large ones
+
+FEATURE FIELDS:
+- title: Short capability name (2-5 words). No verbs, no phases.
+- story: User perspective - "As a [user], I want [capability] so that [benefit]"
+- details: Technical notes, constraints, implementation guidance, acceptance criteria
+- state: proposed (idea) → specified (ready to build) → implemented (done) → deprecated (obsolete)
+- priority: Lower number = implement first. Use this for sequencing, NOT the title.
+
+FEATURE vs TASK:
+- Feature = WHAT the system does (persists forever)
+- Task = HOW you're implementing it (deleted after session)
+- If unsure: "Will this make sense as documentation in 2 years?" → Feature
+- Tasks are throwaway work units; features are permanent capabilities
+
+EXAMPLES:
+Good feature tree:
+  Authentication/
+  ├── Password Login
+  ├── OAuth Integration
+  └── Session Management
+
+Bad feature tree:
+  Phase 1: Foundation/
+  ├── Step 1: Setup Project
+  ├── Step 2: Add Auth
+  └── Step 3: Write Tests
+
 SETUP (one-time when starting a new project):
 1. Call create_project with name, description, and coding instructions
 2. Call add_project_directory to associate your codebase directory with the project
-3. Call create_feature to define features to implement
-
-FEATURE NAMING GUIDELINES:
-- Name features by CAPABILITY, not by implementation phase or order
-- BAD: "Phase 1: Core Routing", "Step 2: Add Validation"
-- GOOD: "Router", "Request Validation", "OpenAPI Generation"
-- Use the 'priority' field to indicate implementation order (lower = first)
-- Features are LIVING DOCUMENTATION - they describe what the system does long-term
-- Put implementation notes or phase info in 'details', not in the title
+3. Call create_feature to define features (remember: capabilities, not tasks!)
 
 DISCOVERY (find what to work on):
 - get_project_context: Given your CWD, find the project and its instructions
-- list_features: Browse features, filter by project_id or state (proposed/specified/implemented/deprecated)
+- list_features: Browse features, filter by project_id or state
 - get_feature: Get full details of a feature before starting work
 
 AGENT WORKFLOW (when assigned a task_id):
@@ -1163,7 +1201,6 @@ ORCHESTRATOR WORKFLOW (when managing a feature):
 5. Spawn agents with their task_ids
 6. Call list_session_tasks to monitor progress
 7. Call complete_session when all tasks are done
-8. Call update_feature_state if needed (e.g., to 'deprecated')
 
 IMPORTANT:
 - Read feature story and details carefully before coding
