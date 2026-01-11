@@ -676,9 +676,7 @@ mod projects {
         let server = setup();
         let fake_id = uuid::Uuid::new_v4();
 
-        let response = server
-            .get(&format!("/api/v1/projects/{}", fake_id))
-            .await;
+        let response = server.get(&format!("/api/v1/projects/{}", fake_id)).await;
 
         response.assert_status_not_found();
     }
@@ -898,9 +896,7 @@ mod features {
         let server = setup();
         let fake_id = uuid::Uuid::new_v4();
 
-        let response = server
-            .get(&format!("/api/v1/features/{}", fake_id))
-            .await;
+        let response = server.get(&format!("/api/v1/features/{}", fake_id)).await;
 
         response.assert_status_not_found();
     }
@@ -1068,9 +1064,7 @@ mod sessions {
         let server = setup();
         let fake_id = uuid::Uuid::new_v4();
 
-        let response = server
-            .get(&format!("/api/v1/sessions/{}", fake_id))
-            .await;
+        let response = server.get(&format!("/api/v1/sessions/{}", fake_id)).await;
 
         response.assert_status_not_found();
     }
@@ -1108,7 +1102,10 @@ mod sessions {
             .json::<SessionResponse>();
 
         let response = server
-            .get(&format!("/api/v1/sessions/{}/status", session_response.session.id))
+            .get(&format!(
+                "/api/v1/sessions/{}/status",
+                session_response.session.id
+            ))
             .await;
 
         response.assert_status_ok();
@@ -1161,9 +1158,7 @@ mod tasks {
 
         let task_id = session_response.tasks[0].id;
 
-        let response = server
-            .get(&format!("/api/v1/tasks/{}", task_id))
-            .await;
+        let response = server.get(&format!("/api/v1/tasks/{}", task_id)).await;
 
         response.assert_status_ok();
         let task: Task = response.json();
@@ -1178,9 +1173,7 @@ mod tasks {
         let server = setup();
         let fake_id = uuid::Uuid::new_v4();
 
-        let response = server
-            .get(&format!("/api/v1/tasks/{}", fake_id))
-            .await;
+        let response = server.get(&format!("/api/v1/tasks/{}", fake_id)).await;
 
         response.assert_status_not_found();
     }
