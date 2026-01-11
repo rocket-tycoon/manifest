@@ -1,7 +1,7 @@
 mod handlers;
 
 use axum::{
-    routing::{get, post, put, delete},
+    routing::{delete, get, post, put},
     Router,
 };
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
@@ -16,14 +16,32 @@ pub fn create_router(db: Database) -> Router {
         .route("/projects/{id}", get(handlers::get_project))
         .route("/projects/{id}", put(handlers::update_project))
         .route("/projects/{id}", delete(handlers::delete_project))
-        .route("/projects/{id}/directories", get(handlers::list_project_directories))
-        .route("/projects/{id}/directories", post(handlers::add_project_directory))
-        .route("/projects/{id}/features", get(handlers::list_project_features))
+        .route(
+            "/projects/{id}/directories",
+            get(handlers::list_project_directories),
+        )
+        .route(
+            "/projects/{id}/directories",
+            post(handlers::add_project_directory),
+        )
+        .route(
+            "/projects/{id}/features",
+            get(handlers::list_project_features),
+        )
         .route("/projects/{id}/features", post(handlers::create_feature))
-        .route("/projects/{id}/features/roots", get(handlers::list_root_features))
-        .route("/projects/{id}/features/tree", get(handlers::get_feature_tree))
+        .route(
+            "/projects/{id}/features/roots",
+            get(handlers::list_root_features),
+        )
+        .route(
+            "/projects/{id}/features/tree",
+            get(handlers::get_feature_tree),
+        )
         // Directories (for delete by directory id)
-        .route("/directories/{id}", delete(handlers::remove_project_directory))
+        .route(
+            "/directories/{id}",
+            delete(handlers::remove_project_directory),
+        )
         // Features (by feature id)
         .route("/features", get(handlers::list_features))
         .route("/features/{id}", get(handlers::get_feature))
