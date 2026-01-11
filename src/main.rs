@@ -4,7 +4,8 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use rocket_manifest::{api, db, mcp};
 
 #[derive(Parser)]
-#[command(name = "rocket-manifest")]
+#[command(name = "rmf")]
+#[command(version)]
 #[command(about = "Living feature documentation for AI-assisted development")]
 struct Cli {
     #[command(subcommand)]
