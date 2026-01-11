@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -52,14 +54,18 @@ impl TaskStatus {
             Self::Failed => "failed",
         }
     }
+}
 
-    pub fn from_str(s: &str) -> Option<Self> {
+impl FromStr for TaskStatus {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "pending" => Some(Self::Pending),
-            "running" => Some(Self::Running),
-            "completed" => Some(Self::Completed),
-            "failed" => Some(Self::Failed),
-            _ => None,
+            "pending" => Ok(Self::Pending),
+            "running" => Ok(Self::Running),
+            "completed" => Ok(Self::Completed),
+            "failed" => Ok(Self::Failed),
+            _ => Err(()),
         }
     }
 }
@@ -84,13 +90,17 @@ impl AgentType {
             Self::Codex => "codex",
         }
     }
+}
 
-    pub fn from_str(s: &str) -> Option<Self> {
+impl FromStr for AgentType {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            "claude" => Some(Self::Claude),
-            "gemini" => Some(Self::Gemini),
-            "codex" => Some(Self::Codex),
-            _ => None,
+            "claude" => Ok(Self::Claude),
+            "gemini" => Ok(Self::Gemini),
+            "codex" => Ok(Self::Codex),
+            _ => Err(()),
         }
     }
 }

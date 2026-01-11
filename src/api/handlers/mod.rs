@@ -63,7 +63,10 @@ pub async fn delete_project(
     State(db): State<Database>,
     Path(id): Path<Uuid>,
 ) -> Result<StatusCode, (StatusCode, String)> {
-    if db.delete_project(id).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))? {
+    if db
+        .delete_project(id)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+    {
         Ok(StatusCode::NO_CONTENT)
     } else {
         Err((StatusCode::NOT_FOUND, "Project not found".to_string()))
@@ -97,7 +100,10 @@ pub async fn remove_project_directory(
     State(db): State<Database>,
     Path(id): Path<Uuid>,
 ) -> Result<StatusCode, (StatusCode, String)> {
-    if db.remove_project_directory(id).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))? {
+    if db
+        .remove_project_directory(id)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+    {
         Ok(StatusCode::NO_CONTENT)
     } else {
         Err((StatusCode::NOT_FOUND, "Directory not found".to_string()))
@@ -196,7 +202,10 @@ pub async fn delete_feature(
     State(db): State<Database>,
     Path(id): Path<Uuid>,
 ) -> Result<StatusCode, (StatusCode, String)> {
-    if db.delete_feature(id).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))? {
+    if db
+        .delete_feature(id)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+    {
         Ok(StatusCode::NO_CONTENT)
     } else {
         Err((StatusCode::NOT_FOUND, "Feature not found".to_string()))
@@ -266,11 +275,12 @@ pub async fn update_task(
     Path(id): Path<Uuid>,
     Json(input): Json<UpdateTaskInput>,
 ) -> Result<StatusCode, (StatusCode, String)> {
-    if db.update_task(id, input).map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))? {
+    if db
+        .update_task(id, input)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+    {
         Ok(StatusCode::OK)
     } else {
         Err((StatusCode::NOT_FOUND, "Task not found".to_string()))
     }
 }
-
-
