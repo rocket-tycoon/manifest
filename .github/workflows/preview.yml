@@ -1,0 +1,102 @@
+name: PR Preview
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, closed]
+
+env:
+  FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+
+jobs:
+  preview:
+    name: Preview Deployment
+    runs-on: ubuntu-latest
+    if: github.event.action != 'closed'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Fly.io CLI
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Create or Update Preview App
+        run: |
+          APP_NAME="rmf-pr-${{ github.event.pull_request.number }}"
+
+          # Check if app exists
+          if ! flyctl apps list | grep -q "$APP_NAME"; then
+            echo "Creating preview app: $APP_NAME"
+            flyctl apps create "$APP_NAME" --org personal || true
+
+            # Create a small volume for the preview
+            flyctl volumes create rmf_data \
+              --app "$APP_NAME" \
+              --region sjc \
+              --size 1 \
+              --yes || true
+          fi
+
+          # Deploy to preview
+          flyctl deploy \
+            --app "$APP_NAME" \
+            --config fly.toml \
+            --remote-only \
+            --vm-memory 256
+
+      - name: Comment PR with Preview URL
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const appName = `rmf-pr-${{ github.event.pull_request.number }}`;
+            const url = `https://${appName}.fly.dev`;
+
+            // Find existing comment
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const botComment = comments.find(c =>
+              c.user.type === 'Bot' && c.body.includes('Preview deployment')
+            );
+
+            const body = `### Preview deployment
+
+            Your preview is ready at: ${url}
+
+            **Health check:** ${url}/api/v1/health
+
+            _This preview will be destroyed when the PR is closed._`;
+
+            if (botComment) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body
+              });
+            }
+
+  cleanup:
+    name: Cleanup Preview
+    runs-on: ubuntu-latest
+    if: github.event.action == 'closed'
+
+    steps:
+      - name: Setup Fly.io CLI
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Destroy Preview App
+        run: |
+          APP_NAME="rmf-pr-${{ github.event.pull_request.number }}"
+
+          echo "Destroying preview app: $APP_NAME"
+          flyctl apps destroy "$APP_NAME" --yes || true
