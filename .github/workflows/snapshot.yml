@@ -1,0 +1,56 @@
+name: Database Snapshot
+
+on:
+  schedule:
+    # Run every Sunday at 2:00 AM UTC
+    - cron: '0 2 * * 0'
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "snapshot" to confirm copying prod data to staging'
+        required: true
+
+env:
+  FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+
+jobs:
+  snapshot:
+    name: Copy Production to Staging
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate manual trigger
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          if [ "${{ github.event.inputs.confirm }}" != "snapshot" ]; then
+            echo "Confirmation failed. Type 'snapshot' to confirm."
+            exit 1
+          fi
+
+      - name: Setup Fly.io CLI
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Create Snapshot
+        run: |
+          PROD_APP="rocket-manifest"
+          STAGING_APP="rocket-manifest-staging"
+          DB_PATH="/data/manifest.db"
+          TEMP_FILE="/tmp/manifest-snapshot.db"
+
+          echo "=== Downloading from production ==="
+          flyctl ssh sftp get "$DB_PATH" "$TEMP_FILE" --app "$PROD_APP"
+
+          echo "=== Stopping staging ==="
+          flyctl scale count 0 --app "$STAGING_APP" --yes || true
+          sleep 10
+
+          echo "=== Uploading to staging ==="
+          # Use machine exec instead of sftp for upload
+          flyctl ssh console --app "$STAGING_APP" -C "cat > $DB_PATH" < "$TEMP_FILE" || true
+
+          echo "=== Restarting staging ==="
+          flyctl scale count 1 --app "$STAGING_APP" --yes
+
+          echo "=== Done ==="
