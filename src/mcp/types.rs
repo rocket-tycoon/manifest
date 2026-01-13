@@ -67,9 +67,6 @@ pub struct CompleteSessionRequest {
         description = "Summary of work done during this session - becomes the feature history entry"
     )]
     pub summary: String,
-    #[schemars(description = "Files that were changed during this session")]
-    #[serde(default)]
-    pub files_changed: Vec<String>,
     #[schemars(description = "Git commits created during this session")]
     #[serde(default)]
     pub commits: Vec<CommitRefInput>,
@@ -87,7 +84,7 @@ pub struct CommitRefInput {
     pub sha: String,
     #[schemars(description = "The commit message (first line)")]
     pub message: String,
-    #[schemars(description = "The commit author, if different from the session author")]
+    #[schemars(description = "The commit author")]
     #[serde(default)]
     pub author: Option<String>,
 }
@@ -118,6 +115,12 @@ pub struct ListFeaturesRequest {
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct GetFeatureRequest {
     #[schemars(description = "The UUID of the feature to retrieve")]
+    pub feature_id: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct GetFeatureHistoryRequest {
+    #[schemars(description = "The UUID of the feature to get history for")]
     pub feature_id: String,
 }
 
@@ -280,6 +283,28 @@ pub struct CompleteSessionResponse {
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct FeatureListResponse {
     pub features: Vec<FeatureInfo>,
+}
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct FeatureHistoryResponse {
+    pub feature_id: String,
+    pub entries: Vec<HistoryEntryInfo>,
+}
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct HistoryEntryInfo {
+    pub id: String,
+    pub session_id: Option<String>,
+    pub summary: String,
+    pub commits: Vec<CommitInfo>,
+    pub created_at: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct CommitInfo {
+    pub sha: String,
+    pub message: String,
+    pub author: Option<String>,
 }
 
 /// Lightweight feature summary without details (used for MCP list operations).

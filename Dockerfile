@@ -25,6 +25,7 @@ FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y \
     ca-certificates \
     libsqlite3-0 \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user
@@ -39,8 +40,9 @@ COPY --from=builder /app/target/release/rmf /usr/local/bin/rmf
 # Switch to non-root user
 USER rmf
 
-# Set data directory
+# Set data directory and bind to all interfaces for container networking
 ENV ROCKET_MANIFEST_DATA_DIR=/data
+ENV ROCKET_MANIFEST_BIND_ADDR=0.0.0.0
 
 # Expose port
 EXPOSE 17010

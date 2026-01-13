@@ -4,10 +4,14 @@ use axum::{
     response::IntoResponse,
     Json,
 };
+use serde::Deserialize;
 use uuid::Uuid;
 
 use crate::db::Database;
 use crate::models::*;
+
+// Import MCP types for bulk feature creation (re-exported from mcp module)
+use crate::mcp::{PlanFeaturesResponse, ProposedFeature};
 
 // ============================================================
 // Error Handling
@@ -401,4 +405,105 @@ pub async fn list_session_tasks(
     db.get_tasks_by_session(session_id)
         .map(Json)
         .map_err(internal_error)
+}
+
+// ============================================================
+// Project by Directory (for MCP get_project_context)
+// ============================================================
+
+/// Query parameters for getting a project by directory path.
+#[derive(Debug, Deserialize)]
+pub struct GetProjectByDirectoryQuery {
+    pub path: String,
+}
+
+/// Find a project by directory path.
+///
+/// Returns the project and matching directory if the path matches exactly,
+/// or if the path is a subdirectory of a registered project directory.
+pub async fn get_project_by_directory(
+    State(db): State<Database>,
+    Query(query): Query<GetProjectByDirectoryQuery>,
+) -> Result<Json<ProjectWithDirectories>, (StatusCode, String)> {
+    db.get_project_by_directory(&query.path)
+        .map_err(internal_error)?
+        .map(Json)
+        .ok_or((
+            StatusCode::NOT_FOUND,
+            format!("No project found for directory: {}", query.path),
+        ))
+}
+
+// ============================================================
+// Bulk Feature Creation (for MCP plan_features)
+// ============================================================
+
+/// Input for bulk feature creation.
+#[derive(Debug, Deserialize)]
+pub struct BulkCreateFeaturesInput {
+    /// The proposed feature tree.
+    pub features: Vec<ProposedFeature>,
+    /// If true, creates the features in the database. If false, returns preview only.
+    #[serde(default)]
+    pub confirm: bool,
+}
+
+/// Create multiple features at once with hierarchical structure.
+///
+/// When confirm=false (default), returns the proposed features without creating them.
+/// When confirm=true, creates all features and returns their IDs.
+pub async fn bulk_create_features(
+    State(db): State<Database>,
+    Path(project_id): Path<Uuid>,
+    Json(input): Json<BulkCreateFeaturesInput>,
+) -> Result<Json<PlanFeaturesResponse>, (StatusCode, String)> {
+    // Verify project exists
+    db.get_project(project_id)
+        .map_err(internal_error)?
+        .ok_or((StatusCode::NOT_FOUND, "Project not found".to_string()))?;
+
+    let mut created_ids = Vec::new();
+
+    if input.confirm {
+        // Create features recursively
+        for feature in &input.features {
+            create_feature_recursive(&db, project_id, None, feature, &mut created_ids)
+                .map_err(internal_error)?;
+        }
+    }
+
+    Ok(Json(PlanFeaturesResponse {
+        proposed_features: input.features,
+        created: input.confirm,
+        created_feature_ids: created_ids,
+    }))
+}
+
+/// Recursively create features from a ProposedFeature tree.
+fn create_feature_recursive(
+    db: &Database,
+    project_id: Uuid,
+    parent_id: Option<Uuid>,
+    proposed: &ProposedFeature,
+    created_ids: &mut Vec<String>,
+) -> anyhow::Result<Uuid> {
+    let feature = db.create_feature(
+        project_id,
+        CreateFeatureInput {
+            parent_id,
+            title: proposed.title.clone(),
+            details: proposed.details.clone(),
+            state: Some(FeatureState::Specified),
+            priority: Some(proposed.priority),
+        },
+    )?;
+
+    created_ids.push(feature.id.to_string());
+
+    // Create children with this feature as parent
+    for child in &proposed.children {
+        create_feature_recursive(db, project_id, Some(feature.id), child, created_ids)?;
+    }
+
+    Ok(feature.id)
 }

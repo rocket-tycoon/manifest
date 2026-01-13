@@ -1,9 +1,11 @@
 //! MCP server for AI-assisted feature development.
 
+pub mod client;
 mod types;
 
 use std::str::FromStr;
 
+pub use client::ManifestClient;
 pub use types::*;
 
 use rmcp::{
@@ -13,21 +15,26 @@ use rmcp::{
 };
 use uuid::Uuid;
 
-use crate::db::Database;
 use crate::models::*;
+use client::ClientError;
 
 #[derive(Clone)]
 pub struct McpServer {
-    db: Database,
+    client: ManifestClient,
     tool_router: ToolRouter<Self>,
 }
 
 impl McpServer {
-    pub fn new(db: Database) -> Self {
+    pub fn new(client: ManifestClient) -> Self {
         Self {
-            db,
+            client,
             tool_router: Self::tool_router(),
         }
+    }
+
+    /// Create from environment variables.
+    pub fn from_env() -> Self {
+        Self::new(ManifestClient::from_env())
     }
 
     fn parse_uuid(s: &str) -> Result<Uuid, McpError> {
@@ -35,505 +42,17 @@ impl McpServer {
             .map_err(|e| McpError::invalid_params(format!("Invalid UUID: {}", e), None))
     }
 
-    // ============================================================
-    // Test helpers - expose tool logic for testing
-    // ============================================================
-
-    pub async fn test_get_task_context(
-        &self,
-        task_id: &str,
-    ) -> Result<TaskContextResponse, McpError> {
-        let task_id = Self::parse_uuid(task_id)?;
-
-        let task = self
-            .db
-            .get_task(task_id)
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
-            .ok_or_else(|| McpError::invalid_params("Task not found", None))?;
-
-        let session = self
-            .db
-            .get_session(task.session_id)
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
-            .ok_or_else(|| McpError::internal_error("Session not found", None))?;
-
-        let feature = self
-            .db
-            .get_feature(session.feature_id)
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
-            .ok_or_else(|| McpError::internal_error("Feature not found", None))?;
-
-        Ok(TaskContextResponse {
-            task: TaskInfo {
-                id: task.id.to_string(),
-                title: task.title,
-                scope: task.scope,
-                status: task.status.as_str().to_string(),
-                agent_type: task.agent_type.as_str().to_string(),
-            },
-            feature: FeatureInfo {
-                id: feature.id.to_string(),
-                title: feature.title,
-                details: feature.details,
-                desired_details: feature.desired_details,
-                state: feature.state.as_str().to_string(),
-                priority: feature.priority,
-            },
-            session_goal: session.goal,
-        })
-    }
-
-    pub fn test_start_task(&self, task_id: &str) -> Result<(), McpError> {
-        let task_id = Self::parse_uuid(task_id)?;
-        let updated = self
-            .db
-            .update_task(
-                task_id,
-                UpdateTaskInput {
-                    status: Some(TaskStatus::Running),
-                    worktree_path: None,
-                    branch: None,
-                },
-            )
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-
-        if !updated {
-            return Err(McpError::invalid_params("Task not found", None));
+    /// Convert ClientError to McpError.
+    fn client_err(e: ClientError) -> McpError {
+        match e {
+            ClientError::NotFound(msg) => McpError::invalid_params(msg, None),
+            ClientError::BadRequest(msg) => McpError::invalid_params(msg, None),
+            ClientError::Unauthorized => {
+                McpError::internal_error("Unauthorized: check ROCKET_MANIFEST_API_KEY", None)
+            }
+            ClientError::Http(e) => McpError::internal_error(e.to_string(), None),
+            ClientError::Server(msg) => McpError::internal_error(msg, None),
         }
-        Ok(())
-    }
-
-    pub fn test_complete_task(&self, task_id: &str) -> Result<(), McpError> {
-        let task_id = Self::parse_uuid(task_id)?;
-        let updated = self
-            .db
-            .update_task(
-                task_id,
-                UpdateTaskInput {
-                    status: Some(TaskStatus::Completed),
-                    worktree_path: None,
-                    branch: None,
-                },
-            )
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-
-        if !updated {
-            return Err(McpError::invalid_params("Task not found", None));
-        }
-        Ok(())
-    }
-
-    pub fn test_create_session(
-        &self,
-        feature_id: &str,
-        goal: &str,
-    ) -> Result<SessionInfo, McpError> {
-        let feature_id = Self::parse_uuid(feature_id)?;
-        let response = self
-            .db
-            .create_session(CreateSessionInput {
-                feature_id,
-                goal: goal.to_string(),
-                tasks: vec![],
-            })
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-
-        Ok(SessionInfo {
-            id: response.session.id.to_string(),
-            feature_id: response.session.feature_id.to_string(),
-            goal: response.session.goal,
-            status: response.session.status.as_str().to_string(),
-        })
-    }
-
-    pub fn test_create_task(
-        &self,
-        session_id: &str,
-        title: &str,
-        scope: &str,
-        agent_type: &str,
-    ) -> Result<TaskInfo, McpError> {
-        let session_id = Self::parse_uuid(session_id)?;
-        let agent_type = AgentType::from_str(agent_type).map_err(|_| {
-            McpError::invalid_params(
-                format!(
-                    "Invalid agent_type '{}'. Must be: claude, gemini, or codex",
-                    agent_type
-                ),
-                None,
-            )
-        })?;
-
-        let task = self
-            .db
-            .create_task(
-                session_id,
-                CreateTaskInput {
-                    parent_id: None,
-                    title: title.to_string(),
-                    scope: scope.to_string(),
-                    agent_type,
-                },
-            )
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-
-        Ok(TaskInfo {
-            id: task.id.to_string(),
-            title: task.title,
-            scope: task.scope,
-            status: task.status.as_str().to_string(),
-            agent_type: task.agent_type.as_str().to_string(),
-        })
-    }
-
-    pub fn test_list_session_tasks(&self, session_id: &str) -> Result<TaskListResponse, McpError> {
-        let session_id = Self::parse_uuid(session_id)?;
-        let tasks = self
-            .db
-            .get_tasks_by_session(session_id)
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-
-        Ok(TaskListResponse {
-            session_id: session_id.to_string(),
-            tasks: tasks
-                .into_iter()
-                .map(|t| TaskInfo {
-                    id: t.id.to_string(),
-                    title: t.title,
-                    scope: t.scope,
-                    status: t.status.as_str().to_string(),
-                    agent_type: t.agent_type.as_str().to_string(),
-                })
-                .collect(),
-        })
-    }
-
-    pub fn test_complete_session(
-        &self,
-        session_id: &str,
-        summary: &str,
-        files_changed: Vec<String>,
-        mark_implemented: bool,
-    ) -> Result<CompleteSessionResponse, McpError> {
-        let session_id = Self::parse_uuid(session_id)?;
-        let feature_state = if mark_implemented {
-            Some(FeatureState::Implemented)
-        } else {
-            None
-        };
-
-        let result = self
-            .db
-            .complete_session(
-                session_id,
-                CompleteSessionInput {
-                    summary: summary.to_string(),
-                    author: "session".to_string(),
-                    files_changed,
-                    commits: vec![],
-                    feature_state,
-                },
-            )
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
-            .ok_or_else(|| McpError::invalid_params("Session not found", None))?;
-
-        Ok(CompleteSessionResponse {
-            session_id: result.session.id.to_string(),
-            feature_id: result.session.feature_id.to_string(),
-            feature_state: if mark_implemented {
-                "implemented"
-            } else {
-                "unchanged"
-            }
-            .to_string(),
-            history_entry_id: result.history_entry.id.to_string(),
-        })
-    }
-
-    pub fn test_list_features(
-        &self,
-        project_id: Option<&str>,
-        state: Option<&str>,
-    ) -> Result<FeatureListResponse, McpError> {
-        self.test_list_features_with_options(project_id, state, true, None, None)
-    }
-
-    pub fn test_list_features_with_options(
-        &self,
-        project_id: Option<&str>,
-        state: Option<&str>,
-        include_details: bool,
-        limit: Option<u32>,
-        offset: Option<u32>,
-    ) -> Result<FeatureListResponse, McpError> {
-        let features = match project_id {
-            Some(pid) => {
-                let project_id = Self::parse_uuid(pid)?;
-                self.db
-                    .get_features_by_project(project_id)
-                    .map_err(|e| McpError::internal_error(e.to_string(), None))?
-            }
-            None => self
-                .db
-                .get_all_features()
-                .map_err(|e| McpError::internal_error(e.to_string(), None))?,
-        };
-
-        let features: Vec<_> = match state {
-            Some(state) => {
-                let target_state = FeatureState::from_str(state).map_err(|_| {
-                    McpError::invalid_params(format!("Invalid state '{}'", state), None)
-                })?;
-                features
-                    .into_iter()
-                    .filter(|f| f.state == target_state)
-                    .collect()
-            }
-            None => features,
-        };
-
-        // Apply pagination
-        let offset_val = offset.unwrap_or(0) as usize;
-        let features: Vec<_> = features.into_iter().skip(offset_val).collect();
-        let features: Vec<_> = match limit {
-            Some(l) => features.into_iter().take(l as usize).collect(),
-            None => features,
-        };
-
-        // Note: test helper always returns full FeatureListResponse for backwards compatibility
-        // The include_details flag is used in the actual MCP tool to switch response types
-        let _ = include_details; // Acknowledge but don't change response type in test helper
-
-        Ok(FeatureListResponse {
-            features: features
-                .into_iter()
-                .map(|f| FeatureInfo {
-                    id: f.id.to_string(),
-                    title: f.title,
-                    details: f.details,
-                    desired_details: f.desired_details,
-                    state: f.state.as_str().to_string(),
-                    priority: f.priority,
-                })
-                .collect(),
-        })
-    }
-
-    pub fn test_get_feature(&self, feature_id: &str) -> Result<FeatureInfo, McpError> {
-        let feature_id = Self::parse_uuid(feature_id)?;
-        let feature = self
-            .db
-            .get_feature(feature_id)
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
-            .ok_or_else(|| McpError::invalid_params("Feature not found", None))?;
-
-        Ok(FeatureInfo {
-            id: feature.id.to_string(),
-            title: feature.title,
-            details: feature.details,
-            desired_details: feature.desired_details,
-            state: feature.state.as_str().to_string(),
-            priority: feature.priority,
-        })
-    }
-
-    pub fn test_get_project_context(
-        &self,
-        directory_path: &str,
-    ) -> Result<ProjectContextResponse, McpError> {
-        let project_with_dirs = self
-            .db
-            .get_project_by_directory(directory_path)
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
-            .ok_or_else(|| {
-                McpError::invalid_params(
-                    format!("No project found for directory: {}", directory_path),
-                    None,
-                )
-            })?;
-
-        let matching_dir = project_with_dirs
-            .directories
-            .iter()
-            .find(|d| {
-                directory_path == d.path || directory_path.starts_with(&format!("{}/", d.path))
-            })
-            .ok_or_else(|| McpError::internal_error("Directory match logic error", None))?;
-
-        Ok(ProjectContextResponse {
-            project: ProjectInfo {
-                id: project_with_dirs.project.id.to_string(),
-                name: project_with_dirs.project.name,
-                description: project_with_dirs.project.description,
-                instructions: project_with_dirs.project.instructions,
-            },
-            directory: DirectoryInfo {
-                id: matching_dir.id.to_string(),
-                path: matching_dir.path.clone(),
-                git_remote: matching_dir.git_remote.clone(),
-                is_primary: matching_dir.is_primary,
-                instructions: matching_dir.instructions.clone(),
-            },
-        })
-    }
-
-    pub fn test_update_feature_state(
-        &self,
-        feature_id: &str,
-        state: &str,
-    ) -> Result<FeatureInfo, McpError> {
-        let feature_id = Self::parse_uuid(feature_id)?;
-        let new_state = FeatureState::from_str(state)
-            .map_err(|_| McpError::invalid_params(format!("Invalid state '{}'", state), None))?;
-
-        let feature = self
-            .db
-            .update_feature(
-                feature_id,
-                UpdateFeatureInput {
-                    parent_id: None,
-                    title: None,
-                    details: None,
-                    desired_details: None,
-                    state: Some(new_state),
-                    priority: None,
-                },
-            )
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
-            .ok_or_else(|| McpError::invalid_params("Feature not found", None))?;
-
-        Ok(FeatureInfo {
-            id: feature.id.to_string(),
-            title: feature.title,
-            details: feature.details,
-            desired_details: feature.desired_details,
-            state: feature.state.as_str().to_string(),
-            priority: feature.priority,
-        })
-    }
-
-    pub fn test_create_project(
-        &self,
-        name: &str,
-        description: Option<&str>,
-        instructions: Option<&str>,
-    ) -> Result<ProjectInfo, McpError> {
-        let project = self
-            .db
-            .create_project(CreateProjectInput {
-                name: name.to_string(),
-                description: description.map(|s| s.to_string()),
-                instructions: instructions.map(|s| s.to_string()),
-            })
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-
-        Ok(ProjectInfo {
-            id: project.id.to_string(),
-            name: project.name,
-            description: project.description,
-            instructions: project.instructions,
-        })
-    }
-
-    pub fn test_add_project_directory(
-        &self,
-        project_id: &str,
-        path: &str,
-        git_remote: Option<&str>,
-        is_primary: bool,
-        instructions: Option<&str>,
-    ) -> Result<DirectoryInfo, McpError> {
-        let project_id = Self::parse_uuid(project_id)?;
-
-        let directory = self
-            .db
-            .add_project_directory(
-                project_id,
-                AddDirectoryInput {
-                    path: path.to_string(),
-                    git_remote: git_remote.map(|s| s.to_string()),
-                    is_primary,
-                    instructions: instructions.map(|s| s.to_string()),
-                },
-            )
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-
-        Ok(DirectoryInfo {
-            id: directory.id.to_string(),
-            path: directory.path,
-            git_remote: directory.git_remote,
-            is_primary: directory.is_primary,
-            instructions: directory.instructions,
-        })
-    }
-
-    pub fn test_create_feature(
-        &self,
-        project_id: &str,
-        parent_id: Option<&str>,
-        title: &str,
-        details: Option<&str>,
-        state: &str,
-    ) -> Result<FeatureInfo, McpError> {
-        let project_id = Self::parse_uuid(project_id)?;
-        let parent_id = match parent_id {
-            Some(pid) => Some(Self::parse_uuid(pid)?),
-            None => None,
-        };
-        let state = FeatureState::from_str(state)
-            .map_err(|_| McpError::invalid_params(format!("Invalid state '{}'", state), None))?;
-
-        let feature = self
-            .db
-            .create_feature(
-                project_id,
-                CreateFeatureInput {
-                    parent_id,
-                    title: title.to_string(),
-                    details: details.map(|s| s.to_string()),
-                    state: Some(state),
-                    priority: None,
-                },
-            )
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-
-        Ok(FeatureInfo {
-            id: feature.id.to_string(),
-            title: feature.title,
-            details: feature.details,
-            desired_details: feature.desired_details,
-            state: feature.state.as_str().to_string(),
-            priority: feature.priority,
-        })
-    }
-
-    pub fn test_plan_features(
-        &self,
-        project_id: &str,
-        features: Vec<ProposedFeature>,
-        confirm: bool,
-    ) -> Result<PlanFeaturesResponse, McpError> {
-        let project_id_uuid = Self::parse_uuid(project_id)?;
-
-        // Verify project exists
-        self.db
-            .get_project(project_id_uuid)
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
-            .ok_or_else(|| McpError::invalid_params("Project not found", None))?;
-
-        let mut created_ids = Vec::new();
-
-        if confirm {
-            for feature in &features {
-                self.create_feature_recursive(project_id_uuid, None, feature, &mut created_ids)?;
-            }
-        }
-
-        Ok(PlanFeaturesResponse {
-            proposed_features: features,
-            created: confirm,
-            created_feature_ids: created_ids,
-        })
     }
 }
 
@@ -554,22 +73,20 @@ impl McpServer {
         let task_id = Self::parse_uuid(&req.task_id)?;
 
         let task = self
-            .db
+            .client
             .get_task(task_id)
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
-            .ok_or_else(|| McpError::invalid_params("Task not found", None))?;
-
+            .await
+            .map_err(Self::client_err)?;
         let session = self
-            .db
+            .client
             .get_session(task.session_id)
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
-            .ok_or_else(|| McpError::internal_error("Session not found", None))?;
-
+            .await
+            .map_err(Self::client_err)?;
         let feature = self
-            .db
+            .client
             .get_feature(session.feature_id)
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
-            .ok_or_else(|| McpError::internal_error("Feature not found", None))?;
+            .await
+            .map_err(Self::client_err)?;
 
         let context = TaskContextResponse {
             task: TaskInfo {
@@ -579,14 +96,7 @@ impl McpServer {
                 status: task.status.as_str().to_string(),
                 agent_type: task.agent_type.as_str().to_string(),
             },
-            feature: FeatureInfo {
-                id: feature.id.to_string(),
-                title: feature.title,
-                details: feature.details,
-                desired_details: feature.desired_details,
-                state: feature.state.as_str().to_string(),
-                priority: feature.priority,
-            },
+            feature: ManifestClient::feature_to_info(&feature),
             session_goal: session.goal,
         };
 
@@ -606,21 +116,17 @@ impl McpServer {
         let req = params.0;
         let task_id = Self::parse_uuid(&req.task_id)?;
 
-        let updated = self
-            .db
+        self.client
             .update_task(
                 task_id,
-                UpdateTaskInput {
+                &UpdateTaskInput {
                     status: Some(TaskStatus::Running),
                     worktree_path: None,
                     branch: None,
                 },
             )
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-
-        if !updated {
-            return Err(McpError::invalid_params("Task not found", None));
-        }
+            .await
+            .map_err(Self::client_err)?;
 
         Ok(CallToolResult::success(vec![Content::text(
             "Task started - status set to 'running'",
@@ -637,21 +143,17 @@ impl McpServer {
         let req = params.0;
         let task_id = Self::parse_uuid(&req.task_id)?;
 
-        let updated = self
-            .db
+        self.client
             .update_task(
                 task_id,
-                UpdateTaskInput {
+                &UpdateTaskInput {
                     status: Some(TaskStatus::Completed),
                     worktree_path: None,
                     branch: None,
                 },
             )
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-
-        if !updated {
-            return Err(McpError::invalid_params("Task not found", None));
-        }
+            .await
+            .map_err(Self::client_err)?;
 
         Ok(CallToolResult::success(vec![Content::text(
             "Task completed successfully",
@@ -673,13 +175,10 @@ impl McpServer {
         let feature_id = Self::parse_uuid(&req.feature_id)?;
 
         let response = self
-            .db
-            .create_session(CreateSessionInput {
-                feature_id,
-                goal: req.goal,
-                tasks: vec![], // Create session without tasks, add them separately
-            })
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+            .client
+            .create_session(feature_id, &req.goal)
+            .await
+            .map_err(Self::client_err)?;
 
         let result = SessionInfo {
             id: response.session.id.to_string(),
@@ -715,17 +214,18 @@ impl McpServer {
         })?;
 
         let task = self
-            .db
+            .client
             .create_task(
                 session_id,
-                CreateTaskInput {
+                &CreateTaskInput {
                     parent_id: None,
                     title: req.title,
                     scope: req.scope,
                     agent_type,
                 },
             )
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+            .await
+            .map_err(Self::client_err)?;
 
         let result = TaskInfo {
             id: task.id.to_string(),
@@ -752,9 +252,10 @@ impl McpServer {
         let session_id = Self::parse_uuid(&req.session_id)?;
 
         let tasks = self
-            .db
+            .client
             .get_tasks_by_session(session_id)
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+            .await
+            .map_err(Self::client_err)?;
 
         let result = TaskListResponse {
             session_id: session_id.to_string(),
@@ -805,19 +306,17 @@ impl McpServer {
             .collect();
 
         let result = self
-            .db
+            .client
             .complete_session(
                 session_id,
-                CompleteSessionInput {
+                &CompleteSessionInput {
                     summary: req.summary,
-                    author: "session".to_string(),
-                    files_changed: req.files_changed,
                     commits,
                     feature_state,
                 },
             )
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
-            .ok_or_else(|| McpError::invalid_params("Session not found", None))?;
+            .await
+            .map_err(Self::client_err)?;
 
         let response = CompleteSessionResponse {
             session_id: result.session.id.to_string(),
@@ -850,61 +349,31 @@ impl McpServer {
     ) -> Result<CallToolResult, McpError> {
         let req = params.0;
 
-        // Get features (filtered by project if specified)
-        let features = match req.project_id {
-            Some(ref pid) => {
-                let project_id = Self::parse_uuid(pid)?;
-                self.db
-                    .get_features_by_project(project_id)
-                    .map_err(|e| McpError::internal_error(e.to_string(), None))?
-            }
-            None => self
-                .db
-                .get_all_features()
-                .map_err(|e| McpError::internal_error(e.to_string(), None))?,
+        // Parse project_id if provided
+        let project_id = match req.project_id {
+            Some(ref pid) => Some(Self::parse_uuid(pid)?),
+            None => None,
         };
 
-        // Filter by state if specified
-        let features: Vec<_> = match req.state {
-            Some(ref state) => {
-                let target_state = FeatureState::from_str(state).map_err(|_| {
-                    McpError::invalid_params(
-                        format!(
-                            "Invalid state '{}'. Must be: proposed, specified, implemented, or deprecated",
-                            state
-                        ),
-                        None,
-                    )
-                })?;
-                features
-                    .into_iter()
-                    .filter(|f| f.state == target_state)
-                    .collect()
-            }
-            None => features,
-        };
-
-        // Apply pagination
-        let offset = req.offset.unwrap_or(0) as usize;
-        let features: Vec<_> = features.into_iter().skip(offset).collect();
-        let features: Vec<_> = match req.limit {
-            Some(limit) => features.into_iter().take(limit as usize).collect(),
-            None => features,
-        };
+        // Get features via HTTP client (always request full details, convert to summary in MCP if needed)
+        let features = self
+            .client
+            .list_features(
+                project_id,
+                req.state.as_deref(),
+                true,
+                req.limit,
+                req.offset,
+            )
+            .await
+            .map_err(Self::client_err)?;
 
         // Return summary or full details based on include_details flag
         let json = if req.include_details {
             let result = FeatureListResponse {
                 features: features
-                    .into_iter()
-                    .map(|f| FeatureInfo {
-                        id: f.id.to_string(),
-                        title: f.title,
-                        details: f.details,
-                        desired_details: f.desired_details,
-                        state: f.state.as_str().to_string(),
-                        priority: f.priority,
-                    })
+                    .iter()
+                    .map(ManifestClient::feature_to_info)
                     .collect(),
             };
             serde_json::to_string_pretty(&result)
@@ -940,18 +409,56 @@ impl McpServer {
         let feature_id = Self::parse_uuid(&req.feature_id)?;
 
         let feature = self
-            .db
+            .client
             .get_feature(feature_id)
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
-            .ok_or_else(|| McpError::invalid_params("Feature not found", None))?;
+            .await
+            .map_err(Self::client_err)?;
 
-        let result = FeatureInfo {
-            id: feature.id.to_string(),
-            title: feature.title,
-            details: feature.details,
-            desired_details: feature.desired_details,
-            state: feature.state.as_str().to_string(),
-            priority: feature.priority,
+        let result = ManifestClient::feature_to_info(&feature);
+
+        let json = serde_json::to_string_pretty(&result)
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+
+        Ok(CallToolResult::success(vec![Content::text(json)]))
+    }
+
+    #[tool(
+        description = "Get implementation history for a feature. Returns past sessions with summaries, files changed, and commit references. Use this to understand previous work before starting a new session or to review what was done."
+    )]
+    async fn get_feature_history(
+        &self,
+        params: Parameters<GetFeatureHistoryRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        let req = params.0;
+        let feature_id = Self::parse_uuid(&req.feature_id)?;
+
+        let history = self
+            .client
+            .get_feature_history(feature_id)
+            .await
+            .map_err(Self::client_err)?;
+
+        let result = FeatureHistoryResponse {
+            feature_id: feature_id.to_string(),
+            entries: history
+                .into_iter()
+                .map(|h| HistoryEntryInfo {
+                    id: h.id.to_string(),
+                    session_id: h.session_id.map(|id| id.to_string()),
+                    summary: h.details.summary,
+                    commits: h
+                        .details
+                        .commits
+                        .into_iter()
+                        .map(|c| CommitInfo {
+                            sha: c.sha,
+                            message: c.message,
+                            author: c.author,
+                        })
+                        .collect(),
+                    created_at: h.created_at.to_rfc3339(),
+                })
+                .collect(),
         };
 
         let json = serde_json::to_string_pretty(&result)
@@ -969,42 +476,11 @@ impl McpServer {
     ) -> Result<CallToolResult, McpError> {
         let req = params.0;
 
-        let project_with_dirs = self
-            .db
-            .get_project_by_directory(&req.directory_path)
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
-            .ok_or_else(|| {
-                McpError::invalid_params(
-                    format!("No project found for directory: {}", req.directory_path),
-                    None,
-                )
-            })?;
-
-        // Find the matching directory
-        let matching_dir = project_with_dirs
-            .directories
-            .iter()
-            .find(|d| {
-                req.directory_path == d.path
-                    || req.directory_path.starts_with(&format!("{}/", d.path))
-            })
-            .ok_or_else(|| McpError::internal_error("Directory match logic error", None))?;
-
-        let result = ProjectContextResponse {
-            project: ProjectInfo {
-                id: project_with_dirs.project.id.to_string(),
-                name: project_with_dirs.project.name,
-                description: project_with_dirs.project.description,
-                instructions: project_with_dirs.project.instructions,
-            },
-            directory: DirectoryInfo {
-                id: matching_dir.id.to_string(),
-                path: matching_dir.path.clone(),
-                git_remote: matching_dir.git_remote.clone(),
-                is_primary: matching_dir.is_primary,
-                instructions: matching_dir.instructions.clone(),
-            },
-        };
+        let result = self
+            .client
+            .get_project_context(&req.directory_path)
+            .await
+            .map_err(Self::client_err)?;
 
         let json = serde_json::to_string_pretty(&result)
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
@@ -1033,10 +509,10 @@ impl McpServer {
         })?;
 
         let feature = self
-            .db
+            .client
             .update_feature(
                 feature_id,
-                UpdateFeatureInput {
+                &UpdateFeatureInput {
                     parent_id: None,
                     title: None,
                     details: None,
@@ -1045,17 +521,10 @@ impl McpServer {
                     priority: None,
                 },
             )
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
-            .ok_or_else(|| McpError::invalid_params("Feature not found", None))?;
+            .await
+            .map_err(Self::client_err)?;
 
-        let result = FeatureInfo {
-            id: feature.id.to_string(),
-            title: feature.title,
-            details: feature.details,
-            desired_details: feature.desired_details,
-            state: feature.state.as_str().to_string(),
-            priority: feature.priority,
-        };
+        let result = ManifestClient::feature_to_info(&feature);
 
         let json = serde_json::to_string_pretty(&result)
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
@@ -1077,13 +546,14 @@ impl McpServer {
         let req = params.0;
 
         let project = self
-            .db
-            .create_project(CreateProjectInput {
+            .client
+            .create_project(&CreateProjectInput {
                 name: req.name,
                 description: req.description,
                 instructions: req.instructions,
             })
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+            .await
+            .map_err(Self::client_err)?;
 
         let result = ProjectInfo {
             id: project.id.to_string(),
@@ -1109,17 +579,18 @@ impl McpServer {
         let project_id = Self::parse_uuid(&req.project_id)?;
 
         let directory = self
-            .db
+            .client
             .add_project_directory(
                 project_id,
-                AddDirectoryInput {
+                &AddDirectoryInput {
                     path: req.path,
                     git_remote: req.git_remote,
                     is_primary: req.is_primary,
                     instructions: req.instructions,
                 },
             )
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+            .await
+            .map_err(Self::client_err)?;
 
         let result = DirectoryInfo {
             id: directory.id.to_string(),
@@ -1159,10 +630,10 @@ impl McpServer {
         })?;
 
         let feature = self
-            .db
+            .client
             .create_feature(
                 project_id,
-                CreateFeatureInput {
+                &CreateFeatureInput {
                     parent_id,
                     title: req.title,
                     details: req.details,
@@ -1170,16 +641,10 @@ impl McpServer {
                     priority: req.priority,
                 },
             )
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+            .await
+            .map_err(Self::client_err)?;
 
-        let result = FeatureInfo {
-            id: feature.id.to_string(),
-            title: feature.title,
-            details: feature.details,
-            desired_details: feature.desired_details,
-            state: feature.state.as_str().to_string(),
-            priority: feature.priority,
-        };
+        let result = ManifestClient::feature_to_info(&feature);
 
         let json = serde_json::to_string_pretty(&result)
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
@@ -1197,65 +662,17 @@ impl McpServer {
         let req = params.0;
         let project_id = Self::parse_uuid(&req.project_id)?;
 
-        // Verify project exists
-        self.db
-            .get_project(project_id)
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?
-            .ok_or_else(|| McpError::invalid_params("Project not found", None))?;
-
-        let mut created_ids = Vec::new();
-
-        if req.confirm {
-            // Create features recursively
-            for feature in &req.features {
-                self.create_feature_recursive(project_id, None, feature, &mut created_ids)?;
-            }
-        }
-
-        let response = PlanFeaturesResponse {
-            proposed_features: req.features,
-            created: req.confirm,
-            created_feature_ids: created_ids,
-        };
+        // Use HTTP client to bulk create features
+        let response = self
+            .client
+            .bulk_create_features(project_id, &req.features, req.confirm)
+            .await
+            .map_err(Self::client_err)?;
 
         let json = serde_json::to_string_pretty(&response)
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
 
         Ok(CallToolResult::success(vec![Content::text(json)]))
-    }
-}
-
-impl McpServer {
-    /// Recursively create features from a ProposedFeature tree
-    fn create_feature_recursive(
-        &self,
-        project_id: Uuid,
-        parent_id: Option<Uuid>,
-        proposed: &ProposedFeature,
-        created_ids: &mut Vec<String>,
-    ) -> Result<Uuid, McpError> {
-        let feature = self
-            .db
-            .create_feature(
-                project_id,
-                CreateFeatureInput {
-                    parent_id,
-                    title: proposed.title.clone(),
-                    details: proposed.details.clone(),
-                    state: Some(FeatureState::Specified),
-                    priority: Some(proposed.priority),
-                },
-            )
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
-
-        created_ids.push(feature.id.to_string());
-
-        // Create children with this feature as parent
-        for child in &proposed.children {
-            self.create_feature_recursive(project_id, Some(feature.id), child, created_ids)?;
-        }
-
-        Ok(feature.id)
     }
 }
 
@@ -1417,12 +834,12 @@ IMPORTANT:
     }
 }
 
-pub async fn run_stdio_server(db: Database) -> anyhow::Result<()> {
+pub async fn run_stdio_server() -> anyhow::Result<()> {
     use tokio::io::{stdin, stdout};
 
     tracing::info!("Starting MCP server via stdio");
 
-    let service = McpServer::new(db);
+    let service = McpServer::from_env();
     let server = service.serve((stdin(), stdout())).await?;
 
     let quit_reason = server.waiting().await?;

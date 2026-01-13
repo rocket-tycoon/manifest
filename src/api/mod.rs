@@ -46,6 +46,10 @@ pub fn create_router_with_config(db: Database, config: SecurityConfig) -> Router
         // Projects
         .route("/projects", get(handlers::list_projects))
         .route("/projects", post(handlers::create_project))
+        .route(
+            "/projects/by-directory",
+            get(handlers::get_project_by_directory),
+        )
         .route("/projects/{id}", get(handlers::get_project))
         .route("/projects/{id}", put(handlers::update_project))
         .route("/projects/{id}", delete(handlers::delete_project))
@@ -62,6 +66,10 @@ pub fn create_router_with_config(db: Database, config: SecurityConfig) -> Router
             get(handlers::list_project_features),
         )
         .route("/projects/{id}/features", post(handlers::create_feature))
+        .route(
+            "/projects/{id}/features/bulk",
+            post(handlers::bulk_create_features),
+        )
         .route(
             "/projects/{id}/features/roots",
             get(handlers::list_root_features),
