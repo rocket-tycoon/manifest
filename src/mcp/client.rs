@@ -1,0 +1,429 @@
+//! HTTP client for RocketManifest API.
+//!
+//! This client abstracts whether the MCP server talks to a local or remote API.
+//! Configuration is via environment variables:
+//! - `ROCKET_MANIFEST_URL` - Base URL (default: `http://localhost:17010/api/v1`)
+//! - `ROCKET_MANIFEST_API_KEY` - API key for authentication (optional for local)
+
+use reqwest::{Client, StatusCode};
+use serde::de::DeserializeOwned;
+use thiserror::Error;
+use uuid::Uuid;
+
+use crate::mcp::{
+    DirectoryInfo, FeatureInfo, PlanFeaturesResponse, ProjectContextResponse, ProjectInfo,
+    ProposedFeature,
+};
+use crate::models::*;
+
+/// Default URL for local development.
+const DEFAULT_URL: &str = "http://localhost:17010/api/v1";
+
+/// HTTP client errors.
+#[derive(Debug, Error)]
+pub enum ClientError {
+    #[error("HTTP request failed: {0}")]
+    Http(#[from] reqwest::Error),
+
+    #[error("Not found: {0}")]
+    NotFound(String),
+
+    #[error("Bad request: {0}")]
+    BadRequest(String),
+
+    #[error("Unauthorized: API key required or invalid")]
+    Unauthorized,
+
+    #[error("Server error: {0}")]
+    Server(String),
+}
+
+/// HTTP client for RocketManifest API.
+#[derive(Debug, Clone)]
+pub struct ManifestClient {
+    base_url: String,
+    api_key: Option<String>,
+    client: Client,
+}
+
+impl ManifestClient {
+    /// Create client from environment variables.
+    pub fn from_env() -> Self {
+        let base_url =
+            std::env::var("ROCKET_MANIFEST_URL").unwrap_or_else(|_| DEFAULT_URL.to_string());
+        let api_key = std::env::var("ROCKET_MANIFEST_API_KEY").ok();
+        Self::new(base_url, api_key)
+    }
+
+    /// Create with explicit configuration.
+    pub fn new(base_url: impl Into<String>, api_key: Option<String>) -> Self {
+        Self {
+            base_url: base_url.into(),
+            api_key,
+            client: Client::new(),
+        }
+    }
+
+    /// Build a request with optional auth header.
+    fn request(&self, method: reqwest::Method, path: &str) -> reqwest::RequestBuilder {
+        let url = format!("{}{}", self.base_url, path);
+        let mut req = self.client.request(method, &url);
+        if let Some(ref key) = self.api_key {
+            req = req.bearer_auth(key);
+        }
+        req
+    }
+
+    /// Handle response, converting HTTP errors to ClientError.
+    async fn handle_response<T: DeserializeOwned>(
+        &self,
+        response: reqwest::Response,
+    ) -> Result<T, ClientError> {
+        let status = response.status();
+        if status.is_success() {
+            Ok(response.json().await?)
+        } else {
+            let body = response.text().await.unwrap_or_default();
+            match status {
+                StatusCode::NOT_FOUND => Err(ClientError::NotFound(body)),
+                StatusCode::BAD_REQUEST => Err(ClientError::BadRequest(body)),
+                StatusCode::UNAUTHORIZED => Err(ClientError::Unauthorized),
+                _ => Err(ClientError::Server(format!("{}: {}", status, body))),
+            }
+        }
+    }
+
+    /// Handle response that may return empty body (204 No Content).
+    async fn handle_empty_response(&self, response: reqwest::Response) -> Result<(), ClientError> {
+        let status = response.status();
+        if status.is_success() {
+            Ok(())
+        } else {
+            let body = response.text().await.unwrap_or_default();
+            match status {
+                StatusCode::NOT_FOUND => Err(ClientError::NotFound(body)),
+                StatusCode::BAD_REQUEST => Err(ClientError::BadRequest(body)),
+                StatusCode::UNAUTHORIZED => Err(ClientError::Unauthorized),
+                _ => Err(ClientError::Server(format!("{}: {}", status, body))),
+            }
+        }
+    }
+
+    // ============================================================
+    // Task Operations
+    // ============================================================
+
+    /// Get a task by ID.
+    pub async fn get_task(&self, id: Uuid) -> Result<Task, ClientError> {
+        let response = self
+            .request(reqwest::Method::GET, &format!("/tasks/{}", id))
+            .send()
+            .await?;
+        self.handle_response(response).await
+    }
+
+    /// Update a task.
+    pub async fn update_task(&self, id: Uuid, input: &UpdateTaskInput) -> Result<(), ClientError> {
+        let response = self
+            .request(reqwest::Method::PUT, &format!("/tasks/{}", id))
+            .json(input)
+            .send()
+            .await?;
+        self.handle_empty_response(response).await
+    }
+
+    // ============================================================
+    // Session Operations
+    // ============================================================
+
+    /// Get a session by ID.
+    pub async fn get_session(&self, id: Uuid) -> Result<Session, ClientError> {
+        let response = self
+            .request(reqwest::Method::GET, &format!("/sessions/{}", id))
+            .send()
+            .await?;
+        self.handle_response(response).await
+    }
+
+    /// Create a new session on a feature.
+    pub async fn create_session(
+        &self,
+        feature_id: Uuid,
+        goal: &str,
+    ) -> Result<SessionResponse, ClientError> {
+        let response = self
+            .request(
+                reqwest::Method::POST,
+                &format!("/features/{}/sessions", feature_id),
+            )
+            .json(&serde_json::json!({
+                "goal": goal,
+                "tasks": []
+            }))
+            .send()
+            .await?;
+        self.handle_response(response).await
+    }
+
+    /// Create a task in a session.
+    pub async fn create_task(
+        &self,
+        session_id: Uuid,
+        input: &CreateTaskInput,
+    ) -> Result<Task, ClientError> {
+        let response = self
+            .request(
+                reqwest::Method::POST,
+                &format!("/sessions/{}/tasks", session_id),
+            )
+            .json(input)
+            .send()
+            .await?;
+        self.handle_response(response).await
+    }
+
+    /// List tasks in a session.
+    pub async fn get_tasks_by_session(&self, session_id: Uuid) -> Result<Vec<Task>, ClientError> {
+        let response = self
+            .request(
+                reqwest::Method::GET,
+                &format!("/sessions/{}/tasks", session_id),
+            )
+            .send()
+            .await?;
+        self.handle_response(response).await
+    }
+
+    /// Complete a session.
+    pub async fn complete_session(
+        &self,
+        session_id: Uuid,
+        input: &CompleteSessionInput,
+    ) -> Result<SessionCompletionResult, ClientError> {
+        let response = self
+            .request(
+                reqwest::Method::POST,
+                &format!("/sessions/{}/complete", session_id),
+            )
+            .json(input)
+            .send()
+            .await?;
+        self.handle_response(response).await
+    }
+
+    // ============================================================
+    // Feature Operations
+    // ============================================================
+
+    /// Get a feature by ID.
+    pub async fn get_feature(&self, id: Uuid) -> Result<Feature, ClientError> {
+        let response = self
+            .request(reqwest::Method::GET, &format!("/features/{}", id))
+            .send()
+            .await?;
+        self.handle_response(response).await
+    }
+
+    /// Get history for a feature.
+    pub async fn get_feature_history(&self, id: Uuid) -> Result<Vec<FeatureHistory>, ClientError> {
+        let response = self
+            .request(reqwest::Method::GET, &format!("/features/{}/history", id))
+            .send()
+            .await?;
+        self.handle_response(response).await
+    }
+
+    /// List all features with optional filtering.
+    pub async fn list_features(
+        &self,
+        project_id: Option<Uuid>,
+        state: Option<&str>,
+        include_details: bool,
+        limit: Option<u32>,
+        offset: Option<u32>,
+    ) -> Result<Vec<Feature>, ClientError> {
+        let mut url = match project_id {
+            Some(pid) => format!("/projects/{}/features", pid),
+            None => "/features".to_string(),
+        };
+
+        // Build query string
+        let mut params = vec![];
+        if include_details {
+            params.push("include_details=true".to_string());
+        }
+        if let Some(s) = state {
+            params.push(format!("state={}", s));
+        }
+        if let Some(l) = limit {
+            params.push(format!("limit={}", l));
+        }
+        if let Some(o) = offset {
+            params.push(format!("offset={}", o));
+        }
+        if !params.is_empty() {
+            url.push('?');
+            url.push_str(&params.join("&"));
+        }
+
+        let response = self.request(reqwest::Method::GET, &url).send().await?;
+        self.handle_response(response).await
+    }
+
+    /// Update a feature.
+    pub async fn update_feature(
+        &self,
+        id: Uuid,
+        input: &UpdateFeatureInput,
+    ) -> Result<Feature, ClientError> {
+        let response = self
+            .request(reqwest::Method::PUT, &format!("/features/{}", id))
+            .json(input)
+            .send()
+            .await?;
+        self.handle_response(response).await
+    }
+
+    /// Create a feature.
+    pub async fn create_feature(
+        &self,
+        project_id: Uuid,
+        input: &CreateFeatureInput,
+    ) -> Result<Feature, ClientError> {
+        let response = self
+            .request(
+                reqwest::Method::POST,
+                &format!("/projects/{}/features", project_id),
+            )
+            .json(input)
+            .send()
+            .await?;
+        self.handle_response(response).await
+    }
+
+    /// Bulk create features (plan_features).
+    pub async fn bulk_create_features(
+        &self,
+        project_id: Uuid,
+        features: &[ProposedFeature],
+        confirm: bool,
+    ) -> Result<PlanFeaturesResponse, ClientError> {
+        let response = self
+            .request(
+                reqwest::Method::POST,
+                &format!("/projects/{}/features/bulk", project_id),
+            )
+            .json(&serde_json::json!({
+                "features": features,
+                "confirm": confirm
+            }))
+            .send()
+            .await?;
+        self.handle_response(response).await
+    }
+
+    // ============================================================
+    // Project Operations
+    // ============================================================
+
+    /// Get a project by ID.
+    pub async fn get_project(&self, id: Uuid) -> Result<ProjectWithDirectories, ClientError> {
+        let response = self
+            .request(reqwest::Method::GET, &format!("/projects/{}", id))
+            .send()
+            .await?;
+        self.handle_response(response).await
+    }
+
+    /// Get project by directory path.
+    pub async fn get_project_by_directory(
+        &self,
+        path: &str,
+    ) -> Result<ProjectWithDirectories, ClientError> {
+        let url = format!("{}/projects/by-directory", self.base_url);
+        let mut req = self.client.get(&url).query(&[("path", path)]);
+        if let Some(ref key) = self.api_key {
+            req = req.bearer_auth(key);
+        }
+        let response = req.send().await?;
+        self.handle_response(response).await
+    }
+
+    /// Create a project.
+    pub async fn create_project(&self, input: &CreateProjectInput) -> Result<Project, ClientError> {
+        let response = self
+            .request(reqwest::Method::POST, "/projects")
+            .json(input)
+            .send()
+            .await?;
+        self.handle_response(response).await
+    }
+
+    /// Add a directory to a project.
+    pub async fn add_project_directory(
+        &self,
+        project_id: Uuid,
+        input: &AddDirectoryInput,
+    ) -> Result<ProjectDirectory, ClientError> {
+        let response = self
+            .request(
+                reqwest::Method::POST,
+                &format!("/projects/{}/directories", project_id),
+            )
+            .json(input)
+            .send()
+            .await?;
+        self.handle_response(response).await
+    }
+}
+
+// ============================================================
+// Helpers for MCP Types
+// ============================================================
+
+impl ManifestClient {
+    /// Get project context for MCP response (project + matching directory info).
+    pub async fn get_project_context(
+        &self,
+        directory_path: &str,
+    ) -> Result<ProjectContextResponse, ClientError> {
+        let project_with_dirs = self.get_project_by_directory(directory_path).await?;
+
+        // Find the matching directory
+        let matching_dir = project_with_dirs
+            .directories
+            .iter()
+            .find(|d| {
+                directory_path == d.path || directory_path.starts_with(&format!("{}/", d.path))
+            })
+            .ok_or_else(|| ClientError::Server("Directory match logic error".to_string()))?;
+
+        Ok(ProjectContextResponse {
+            project: ProjectInfo {
+                id: project_with_dirs.project.id.to_string(),
+                name: project_with_dirs.project.name,
+                description: project_with_dirs.project.description,
+                instructions: project_with_dirs.project.instructions,
+            },
+            directory: DirectoryInfo {
+                id: matching_dir.id.to_string(),
+                path: matching_dir.path.clone(),
+                git_remote: matching_dir.git_remote.clone(),
+                is_primary: matching_dir.is_primary,
+                instructions: matching_dir.instructions.clone(),
+            },
+        })
+    }
+
+    /// Convert Feature to FeatureInfo for MCP response.
+    pub fn feature_to_info(feature: &Feature) -> FeatureInfo {
+        FeatureInfo {
+            id: feature.id.to_string(),
+            title: feature.title.clone(),
+            details: feature.details.clone(),
+            desired_details: feature.desired_details.clone(),
+            state: feature.state.as_str().to_string(),
+            priority: feature.priority,
+        }
+    }
+}

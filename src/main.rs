@@ -20,6 +20,10 @@ enum Commands {
         #[arg(short, long, default_value = "17010")]
         port: u16,
 
+        /// Bind address (use 0.0.0.0 for remote/container deployment)
+        #[arg(short, long, default_value = "127.0.0.1")]
+        bind: String,
+
         /// Run as daemon
         #[arg(short, long)]
         daemon: bool,
@@ -62,27 +66,34 @@ async fn main() -> anyhow::Result<()> {
     init_tracing(use_stderr);
 
     match cli.command {
-        Some(Commands::Serve { port, daemon: _ }) => {
-            tracing::info!("Starting RocketManifest server on port {}", port);
+        Some(Commands::Serve {
+            port,
+            bind,
+            daemon: _,
+        }) => {
+            // Allow env var override for container deployment
+            let bind_addr = std::env::var("ROCKET_MANIFEST_BIND_ADDR").unwrap_or(bind);
+
+            tracing::info!("Starting RocketManifest server on {}:{}", bind_addr, port);
 
             let db = db::Database::open_default()?;
             db.migrate()?;
 
             let app = api::create_router(db);
 
-            let listener = tokio::net::TcpListener::bind(format!("127.0.0.1:{}", port)).await?;
+            let listener = tokio::net::TcpListener::bind(format!("{}:{}", bind_addr, port)).await?;
             tracing::info!(
-                "RocketManifest server listening on http://127.0.0.1:{}",
+                "RocketManifest server listening on http://{}:{}",
+                bind_addr,
                 port
             );
 
             axum::serve(listener, app).await?;
         }
         Some(Commands::Mcp) => {
-            let db = db::Database::open_default()?;
-            db.migrate()?;
-
-            mcp::run_stdio_server(db).await?;
+            // MCP server uses HTTP client to connect to the API
+            // No local database needed - configure via ROCKET_MANIFEST_URL env var
+            mcp::run_stdio_server().await?;
         }
         Some(Commands::Status) => {
             println!("Checking RocketManifest server status...");
@@ -94,15 +105,26 @@ async fn main() -> anyhow::Result<()> {
         }
         None => {
             // Default: start server
-            tracing::info!("Starting RocketManifest server on port 17010");
+            let bind_addr =
+                std::env::var("ROCKET_MANIFEST_BIND_ADDR").unwrap_or_else(|_| "127.0.0.1".into());
+            let port: u16 = std::env::var("ROCKET_MANIFEST_PORT")
+                .ok()
+                .and_then(|p| p.parse().ok())
+                .unwrap_or(17010);
+
+            tracing::info!("Starting RocketManifest server on {}:{}", bind_addr, port);
 
             let db = db::Database::open_default()?;
             db.migrate()?;
 
             let app = api::create_router(db);
 
-            let listener = tokio::net::TcpListener::bind("127.0.0.1:17010").await?;
-            tracing::info!("RocketManifest server listening on http://127.0.0.1:17010");
+            let listener = tokio::net::TcpListener::bind(format!("{}:{}", bind_addr, port)).await?;
+            tracing::info!(
+                "RocketManifest server listening on http://{}:{}",
+                bind_addr,
+                port
+            );
 
             axum::serve(listener, app).await?;
         }
