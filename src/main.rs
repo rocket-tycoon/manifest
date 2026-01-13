@@ -17,7 +17,7 @@ enum Commands {
     /// Start the RocketManifest server
     Serve {
         /// Port for HTTP API
-        #[arg(short, long, default_value = "3000")]
+        #[arg(short, long, default_value = "17010")]
         port: u16,
 
         /// Run as daemon
@@ -94,15 +94,15 @@ async fn main() -> anyhow::Result<()> {
         }
         None => {
             // Default: start server
-            tracing::info!("Starting RocketManifest server on port 3000");
+            tracing::info!("Starting RocketManifest server on port 17010");
 
             let db = db::Database::open_default()?;
             db.migrate()?;
 
             let app = api::create_router(db);
 
-            let listener = tokio::net::TcpListener::bind("127.0.0.1:3000").await?;
-            tracing::info!("RocketManifest server listening on http://127.0.0.1:3000");
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:17010").await?;
+            tracing::info!("RocketManifest server listening on http://127.0.0.1:17010");
 
             axum::serve(listener, app).await?;
         }

@@ -59,7 +59,7 @@ Features are not work items to be closed. They are living documentation that evo
 ## CLI Commands
 
 ```bash
-# Start HTTP server on default port (3000)
+# Start HTTP server on default port (17010)
 rocket-manifest serve
 
 # Start on custom port
@@ -132,7 +132,7 @@ Add RocketManifest as an MCP server in your Claude Code configuration:
 
 ## HTTP API
 
-Base URL: `http://localhost:3000/api/v1`
+Base URL: `http://localhost:17010/api/v1`
 
 Full API documentation is available in [openapi.yaml](./openapi.yaml).
 
@@ -166,12 +166,12 @@ POST   /tasks/{id}/notes            # Add implementation note
 
 ```bash
 # Create a project
-curl -X POST http://localhost:3000/api/v1/projects \
+curl -X POST http://localhost:17010/api/v1/projects \
   -H "Content-Type: application/json" \
   -d '{"name": "my-app", "description": "My application"}'
 
 # Create a feature
-curl -X POST http://localhost:3000/api/v1/projects/{project_id}/features \
+curl -X POST http://localhost:17010/api/v1/projects/{project_id}/features \
   -H "Content-Type: application/json" \
   -d '{
     "title": "User Authentication",
@@ -180,7 +180,7 @@ curl -X POST http://localhost:3000/api/v1/projects/{project_id}/features \
   }'
 
 # Start a session
-curl -X POST http://localhost:3000/api/v1/sessions \
+curl -X POST http://localhost:17010/api/v1/sessions \
   -H "Content-Type: application/json" \
   -d '{
     "feature_id": "{feature_id}",

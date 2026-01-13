@@ -219,7 +219,7 @@ pub enum AgentType {
 
 ## HTTP API
 
-Base URL: `http://localhost:3000/api/v1`
+Base URL: `http://localhost:17010/api/v1`
 
 ### Projects
 
@@ -507,7 +507,7 @@ legion sessions status <session-id>
 # ~/.config/legion/config.toml
 
 [server]
-http_port = 3000
+http_port = 17010
 mcp_port = 3001
 
 [database]
@@ -526,7 +526,7 @@ The VSCode extension becomes a thin HTTP client:
 ```typescript
 // src/api/client.ts
 export class LegionClient {
-  constructor(private baseUrl = 'http://localhost:3000/api/v1') {}
+  constructor(private baseUrl = 'http://localhost:17010/api/v1') {}
 
   async getFeatures(): Promise<Feature[]> {
     const res = await fetch(`${this.baseUrl}/features`);
