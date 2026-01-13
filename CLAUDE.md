@@ -36,7 +36,7 @@ cargo build                    # Debug build
 cargo build --release          # Release build
 cargo test                     # Run all tests
 cargo test db_spec             # Run db specs only
-cargo run                      # Start server on port 3000
+cargo run                      # Start server on port 17010
 cargo run -- serve -p 8080     # Start on custom port
 ```
 
