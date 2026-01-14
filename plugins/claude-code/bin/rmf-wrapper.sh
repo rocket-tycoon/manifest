@@ -4,9 +4,14 @@
 
 set -e
 
+# Prefer system-installed rmf (Homebrew) over downloading
+if command -v rmf &> /dev/null; then
+    exec rmf "$@"
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RMF_BIN="$SCRIPT_DIR/rmf"
-VERSION="0.1.7"
+VERSION="0.1.12"
 
 # Detect platform
 case "$(uname -s)" in
