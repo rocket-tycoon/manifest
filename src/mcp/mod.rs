@@ -48,7 +48,7 @@ impl McpServer {
             ClientError::NotFound(msg) => McpError::invalid_params(msg, None),
             ClientError::BadRequest(msg) => McpError::invalid_params(msg, None),
             ClientError::Unauthorized => {
-                McpError::internal_error("Unauthorized: check ROCKET_MANIFEST_API_KEY", None)
+                McpError::internal_error("Unauthorized: check MANIFEST_API_KEY", None)
             }
             ClientError::Http(e) => McpError::internal_error(e.to_string(), None),
             ClientError::Server(msg) => McpError::internal_error(msg, None),
@@ -772,7 +772,7 @@ impl ServerHandler for McpServer {
     fn get_info(&self) -> ServerInfo {
         ServerInfo {
             server_info: rmcp::model::Implementation {
-                name: "rocket-manifest".into(),
+                name: "manifest".into(),
                 version: env!("CARGO_PKG_VERSION").into(),
                 title: None,
                 icons: None,
@@ -782,7 +782,7 @@ impl ServerHandler for McpServer {
                 .enable_tools()
                 .build(),
             instructions: Some(
-                r#"RocketManifest manages feature implementation sessions and tasks.
+                r#"Manifest manages feature implementation sessions and tasks.
 
 FEATURE PHILOSOPHY:
 Features are LIVING DOCUMENTATION of system capabilities - not work items to close.

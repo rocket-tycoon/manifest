@@ -17,9 +17,9 @@ use std::{
 /// Security configuration loaded from environment variables.
 #[derive(Clone, Debug)]
 pub struct SecurityConfig {
-    /// API key for authentication (from ROCKET_MANIFEST_API_KEY)
+    /// API key for authentication (from MANIFEST_API_KEY)
     pub api_key: Option<String>,
-    /// Allowed CORS origins (from ROCKET_MANIFEST_CORS_ORIGINS, comma-separated)
+    /// Allowed CORS origins (from MANIFEST_CORS_ORIGINS, comma-separated)
     pub cors_origins: Option<Vec<String>>,
     /// Rate limiter instance
     pub rate_limiter: Option<RateLimiter>,
@@ -28,13 +28,13 @@ pub struct SecurityConfig {
 impl SecurityConfig {
     /// Load security configuration from environment variables.
     pub fn from_env() -> Self {
-        let api_key = std::env::var("ROCKET_MANIFEST_API_KEY").ok();
+        let api_key = std::env::var("MANIFEST_API_KEY").ok();
 
-        let cors_origins = std::env::var("ROCKET_MANIFEST_CORS_ORIGINS")
+        let cors_origins = std::env::var("MANIFEST_CORS_ORIGINS")
             .ok()
             .map(|s| s.split(',').map(|s| s.trim().to_string()).collect());
 
-        let rate_limit = std::env::var("ROCKET_MANIFEST_RATE_LIMIT")
+        let rate_limit = std::env::var("MANIFEST_RATE_LIMIT")
             .ok()
             .and_then(|s| s.parse::<u32>().ok())
             .unwrap_or(100); // Default: 100 requests per minute

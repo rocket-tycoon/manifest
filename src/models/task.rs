@@ -11,7 +11,7 @@ use uuid::Uuid;
 ///
 /// Tasks can optionally have a `parent_id` for sub-task relationships, but
 /// AI agents are expected to manage their own internal work breakdown without
-/// RocketManifest tracking granular sub-items.
+/// Manifest tracking granular sub-items.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Task {
     pub id: Uuid,
