@@ -1,4 +1,4 @@
-//! Domain models for RocketManifest.
+//! Domain models for Manifest.
 //!
 //! # Core Concepts
 //!

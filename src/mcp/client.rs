@@ -1,9 +1,9 @@
-//! HTTP client for RocketManifest API.
+//! HTTP client for Manifest API.
 //!
 //! This client abstracts whether the MCP server talks to a local or remote API.
 //! Configuration is via environment variables:
-//! - `ROCKET_MANIFEST_URL` - Base URL (default: `http://localhost:17010/api/v1`)
-//! - `ROCKET_MANIFEST_API_KEY` - API key for authentication (optional for local)
+//! - `MANIFEST_URL` - Base URL (default: `http://localhost:17010/api/v1`)
+//! - `MANIFEST_API_KEY` - API key for authentication (optional for local)
 
 use reqwest::{Client, StatusCode};
 use serde::de::DeserializeOwned;
@@ -38,7 +38,7 @@ pub enum ClientError {
     Server(String),
 }
 
-/// HTTP client for RocketManifest API.
+/// HTTP client for Manifest API.
 #[derive(Debug, Clone)]
 pub struct ManifestClient {
     base_url: String,
@@ -49,9 +49,8 @@ pub struct ManifestClient {
 impl ManifestClient {
     /// Create client from environment variables.
     pub fn from_env() -> Self {
-        let base_url =
-            std::env::var("ROCKET_MANIFEST_URL").unwrap_or_else(|_| DEFAULT_URL.to_string());
-        let api_key = std::env::var("ROCKET_MANIFEST_API_KEY").ok();
+        let base_url = std::env::var("MANIFEST_URL").unwrap_or_else(|_| DEFAULT_URL.to_string());
+        let api_key = std::env::var("MANIFEST_API_KEY").ok();
         Self::new(base_url, api_key)
     }
 
