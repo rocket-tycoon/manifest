@@ -946,11 +946,13 @@ impl FeatureEditor {
                             }))  // closes scroll-container .children()
                     )  // closes scroll-container div
             )  // closes wrapper div
-            // Spacer: fixed width to keep scroll area 50px from right edge
+            // Right toolbar area (50px) - will contain buttons in future
             .child(
                 div()
                     .w(px(50.0))
                     .h_full()
+                    .border_l_1()
+                    .border_color(colors::border())
             )
     }
 

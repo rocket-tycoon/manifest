@@ -444,11 +444,13 @@ impl Render for TerminalView {
                             )
                     )
                     .child(add_button)
-                    // Spacer: fixed width for ~50px right margin (10px + ~40px add button)
+                    // Right toolbar area - will contain buttons in future
                     .child(
                         div()
                             .w(px(10.0))
                             .h_full()
+                            .border_l_1()
+                            .border_color(colors::border())
                     )
             )
             // Terminal content area
