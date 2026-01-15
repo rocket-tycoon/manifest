@@ -137,6 +137,12 @@ pub struct GetProjectContextRequest {
     pub directory_path: String,
 }
 
+/// Request to get the active feature from the Manifest desktop app.
+/// This is a parameterless request - the active feature is determined by
+/// the desktop app's current selection, stored in ~/.manifest/active_context.json.
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct GetActiveFeatureRequest {}
+
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct UpdateFeatureStateRequest {
     #[schemars(description = "The UUID of the feature to update")]

@@ -580,6 +580,42 @@ impl McpServer {
     }
 
     #[tool(
+        description = "Get the currently active feature selected in the Manifest desktop app. Returns the feature ID and title if a feature is selected, or null if no feature is selected. Use this to understand what feature the user is currently working on."
+    )]
+    async fn get_active_feature(
+        &self,
+        _params: Parameters<GetActiveFeatureRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        // Read active context from file (shared with manifest-app)
+        let context_path = dirs::home_dir()
+            .map(|h| h.join(".manifest").join("active_context.json"))
+            .ok_or_else(|| McpError::internal_error("Could not determine home directory", None))?;
+
+        if !context_path.exists() {
+            return Ok(CallToolResult::success(vec![Content::text(
+                r#"{"active_feature": null, "message": "No feature is currently selected in the Manifest app"}"#.to_string()
+            )]));
+        }
+
+        let content = std::fs::read_to_string(&context_path).map_err(|e| {
+            McpError::internal_error(format!("Failed to read context file: {}", e), None)
+        })?;
+
+        // Parse and re-serialize to ensure valid JSON
+        let context: serde_json::Value = serde_json::from_str(&content)
+            .map_err(|e| McpError::internal_error(format!("Invalid context file: {}", e), None))?;
+
+        let response = serde_json::json!({
+            "active_feature": context
+        });
+
+        Ok(CallToolResult::success(vec![Content::text(
+            serde_json::to_string_pretty(&response)
+                .map_err(|e| McpError::internal_error(e.to_string(), None))?,
+        )]))
+    }
+
+    #[tool(
         description = "Update a feature's state, title, or details. Use this to transition features through their lifecycle (proposed → specified → implemented → deprecated) or to update living documentation when implementation reveals new information. At least one field (state, title, or details) must be provided."
     )]
     async fn update_feature_state(

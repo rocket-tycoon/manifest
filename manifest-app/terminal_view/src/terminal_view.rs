@@ -1,11 +1,13 @@
 //! TerminalView - GPUI view container for multiple terminal tabs.
 
 use gpui::{
-    px, App, AsyncWindowContext, Context, Entity, EventEmitter, Focusable, FocusHandle,
+    App, AsyncWindowContext, Context, Entity, EventEmitter, FocusHandle, Focusable,
     InteractiveElement, IntoElement, KeyDownEvent, ParentElement, Render, Rgba, ScrollHandle,
-    SharedString, StatefulInteractiveElement, Styled, WeakEntity, Window, div, prelude::*,
+    SharedString, StatefulInteractiveElement, Styled, WeakEntity, Window, div, prelude::*, px,
 };
-use terminal::{Event as TerminalEvent, Terminal, TerminalBuilder, mappings::colors::TerminalColors};
+use terminal::{
+    Event as TerminalEvent, Terminal, TerminalBuilder, mappings::colors::TerminalColors,
+};
 
 use crate::TerminalElement;
 
@@ -28,27 +30,57 @@ mod colors {
     use gpui::Rgba;
 
     pub fn tab_bar_bg() -> Rgba {
-        Rgba { r: 0.082, g: 0.098, b: 0.118, a: 1.0 } // #15191e - darker than panel for contrast
+        Rgba {
+            r: 0.082,
+            g: 0.098,
+            b: 0.118,
+            a: 1.0,
+        } // #15191e - darker than panel for contrast
     }
 
     pub fn active_tab_bg() -> Rgba {
-        Rgba { r: 0.129, g: 0.149, b: 0.173, a: 1.0 } // #21262c - terminal background
+        Rgba {
+            r: 0.129,
+            g: 0.149,
+            b: 0.173,
+            a: 1.0,
+        } // #21262c - terminal background
     }
 
     pub fn hover_bg() -> Rgba {
-        Rgba { r: 0.243, g: 0.275, b: 0.302, a: 1.0 } // #3e464d
+        Rgba {
+            r: 0.243,
+            g: 0.275,
+            b: 0.302,
+            a: 1.0,
+        } // #3e464d
     }
 
     pub fn border() -> Rgba {
-        Rgba { r: 0.176, g: 0.2, b: 0.227, a: 1.0 } // #2d333a
+        Rgba {
+            r: 0.176,
+            g: 0.2,
+            b: 0.227,
+            a: 1.0,
+        } // #2d333a
     }
 
     pub fn text() -> Rgba {
-        Rgba { r: 0.761, g: 0.839, b: 0.918, a: 1.0 } // #c2d6ea
+        Rgba {
+            r: 0.761,
+            g: 0.839,
+            b: 0.918,
+            a: 1.0,
+        } // #c2d6ea
     }
 
     pub fn text_muted() -> Rgba {
-        Rgba { r: 0.471, g: 0.522, b: 0.608, a: 1.0 } // #78859b
+        Rgba {
+            r: 0.471,
+            g: 0.522,
+            b: 0.608,
+            a: 1.0,
+        } // #78859b
     }
 }
 
@@ -105,7 +137,8 @@ impl TerminalView {
     /// Add a new terminal tab and switch to it.
     fn add_tab(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.create_tab_internal(window, cx);
-        self.tab_bar_scroll_handle.scroll_to_item(self.active_tab_idx);
+        self.tab_bar_scroll_handle
+            .scroll_to_item(self.active_tab_idx);
         cx.notify();
     }
 
@@ -123,13 +156,14 @@ impl TerminalView {
         self.active_tab_idx = self.tabs.len() - 1;
 
         // Spawn the terminal creation in the background
-        let task = cx.background_executor().spawn(async {
-            TerminalBuilder::new(None, 0)
-        });
+        let task = cx
+            .background_executor()
+            .spawn(async { TerminalBuilder::new(None, 0) });
 
         let tab_idx = self.tabs.len() - 1;
-        cx.spawn_in(window, async move |this: WeakEntity<Self>, cx: &mut AsyncWindowContext| {
-            match task.await {
+        cx.spawn_in(
+            window,
+            async move |this: WeakEntity<Self>, cx: &mut AsyncWindowContext| match task.await {
                 Ok(builder) => {
                     this.update_in(cx, |this, _window, cx| {
                         let terminal = cx.new(|cx| builder.build(cx));
@@ -138,13 +172,15 @@ impl TerminalView {
                             tab.terminal = Some(terminal);
                         }
                         cx.notify();
-                    }).ok();
+                    })
+                    .ok();
                 }
                 Err(e) => {
                     eprintln!("Failed to create terminal: {}", e);
                 }
-            }
-        }).detach();
+            },
+        )
+        .detach();
     }
 
     /// Switch to a different tab.
@@ -160,7 +196,8 @@ impl TerminalView {
     fn next_tab(&mut self, cx: &mut Context<Self>) {
         if self.tabs.len() > 1 {
             self.active_tab_idx = (self.active_tab_idx + 1) % self.tabs.len();
-            self.tab_bar_scroll_handle.scroll_to_item(self.active_tab_idx);
+            self.tab_bar_scroll_handle
+                .scroll_to_item(self.active_tab_idx);
             cx.notify();
         }
     }
@@ -173,7 +210,8 @@ impl TerminalView {
             } else {
                 self.active_tab_idx - 1
             };
-            self.tab_bar_scroll_handle.scroll_to_item(self.active_tab_idx);
+            self.tab_bar_scroll_handle
+                .scroll_to_item(self.active_tab_idx);
             cx.notify();
         }
     }
@@ -199,30 +237,39 @@ impl TerminalView {
         }
     }
 
-    fn subscribe_to_terminal(&mut self, tab_idx: usize, terminal: &Entity<Terminal>, cx: &mut Context<Self>) {
-        cx.subscribe(terminal, move |this, _terminal, event: &TerminalEvent, cx| {
-            match event {
-                TerminalEvent::Wakeup => {
-                    cx.notify();
-                }
-                TerminalEvent::Bell => {
-                    // Could play a sound or flash the window
-                }
-                TerminalEvent::TitleChanged => {
-                    // Update tab title from terminal
-                    if let Some(tab) = this.tabs.get_mut(tab_idx) {
-                        // For now just keep "Terminal" - could parse shell title later
-                        tab.title = format!("Terminal {}", tab.id + 1);
+    fn subscribe_to_terminal(
+        &mut self,
+        tab_idx: usize,
+        terminal: &Entity<Terminal>,
+        cx: &mut Context<Self>,
+    ) {
+        cx.subscribe(
+            terminal,
+            move |this, _terminal, event: &TerminalEvent, cx| {
+                match event {
+                    TerminalEvent::Wakeup => {
+                        cx.notify();
                     }
-                    cx.emit(Event::TitleChanged);
-                    cx.notify();
+                    TerminalEvent::Bell => {
+                        // Could play a sound or flash the window
+                    }
+                    TerminalEvent::TitleChanged => {
+                        // Update tab title from terminal
+                        if let Some(tab) = this.tabs.get_mut(tab_idx) {
+                            // For now just keep "Terminal" - could parse shell title later
+                            tab.title = format!("Terminal {}", tab.id + 1);
+                        }
+                        cx.emit(Event::TitleChanged);
+                        cx.notify();
+                    }
+                    TerminalEvent::CloseTerminal => {
+                        this.close_tab(tab_idx, cx);
+                        cx.emit(Event::Closed);
+                    }
                 }
-                TerminalEvent::CloseTerminal => {
-                    this.close_tab(tab_idx, cx);
-                    cx.emit(Event::Closed);
-                }
-            }
-        }).detach();
+            },
+        )
+        .detach();
     }
 
     fn on_key_down(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
@@ -308,7 +355,8 @@ impl Render for TerminalView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         // Collect tab data first to avoid borrow issues
         let can_close = self.tabs.len() > 1;
-        let tab_data: Vec<(usize, usize, String, bool)> = self.tabs
+        let tab_data: Vec<(usize, usize, String, bool)> = self
+            .tabs
             .iter()
             .enumerate()
             .map(|(idx, tab)| (idx, tab.id, tab.title.clone(), idx == self.active_tab_idx))
@@ -321,14 +369,26 @@ impl Render for TerminalView {
 
             // Selected tab: terminal bg, no bottom border, bright text
             // Non-selected: panel bg, has bottom border, dimmed text
-            let tab_bg = if is_active { colors::active_tab_bg() } else { colors::tab_bar_bg() };
-            let text_color = if is_active { colors::text() } else { colors::text_muted() };
-            let icon_color = if is_active { colors::text_muted() } else { colors::text_muted() };
+            let tab_bg = if is_active {
+                colors::active_tab_bg()
+            } else {
+                colors::tab_bar_bg()
+            };
+            let text_color = if is_active {
+                colors::text()
+            } else {
+                colors::text_muted()
+            };
+            let icon_color = if is_active {
+                colors::text_muted()
+            } else {
+                colors::text_muted()
+            };
 
             let el = div()
                 .id(SharedString::from(format!("tab-{}", tab_id)))
                 .h_full()
-                .flex_shrink_0()  // Don't compress tabs - scroll instead
+                .flex_shrink_0() // Don't compress tabs - scroll instead
                 .px(px(12.0))
                 .flex()
                 .flex_row()
@@ -344,18 +404,13 @@ impl Render for TerminalView {
                     this.switch_tab(idx, cx);
                 }))
                 // Terminal icon
-                .child(
-                    div()
-                        .text_size(px(12.0))
-                        .text_color(icon_color)
-                        .child(">_")
-                )
+                .child(div().text_size(px(12.0)).text_color(icon_color).child(">_"))
                 // Title
                 .child(
                     div()
                         .text_size(px(13.0))
                         .text_color(text_color)
-                        .child(title)
+                        .child(title),
                 )
                 // Close button
                 .when(can_close, |el| {
@@ -375,7 +430,7 @@ impl Render for TerminalView {
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 this.close_tab(idx, cx);
                             }))
-                            .child("×")
+                            .child("×"),
                     )
                 });
             tab_elements.push(el);
@@ -416,7 +471,7 @@ impl Render for TerminalView {
                     .h(px(32.0))
                     .w_full()
                     .flex_shrink_0()
-                    .overflow_hidden()  // Constrain children to tab bar width
+                    .overflow_hidden() // Constrain children to tab bar width
                     .flex()
                     .flex_row()
                     .bg(colors::tab_bar_bg())
@@ -426,8 +481,8 @@ impl Render for TerminalView {
                             .id("tab-scroll-wrapper")
                             .flex_1()
                             .flex_shrink()
-                            .flex_basis(px(0.0))  // Start at 0, grow to fill - don't size from content
-                            .min_w(px(0.0))       // Override content-based minimum width
+                            .flex_basis(px(0.0)) // Start at 0, grow to fill - don't size from content
+                            .min_w(px(0.0)) // Override content-based minimum width
                             .h_full()
                             .overflow_hidden()
                             // Inner scroll container: fills wrapper, scrolls content
@@ -440,8 +495,8 @@ impl Render for TerminalView {
                                     .track_scroll(&self.tab_bar_scroll_handle)
                                     .flex()
                                     .flex_row()
-                                    .children(tab_elements)
-                            )
+                                    .children(tab_elements),
+                            ),
                     )
                     .child(add_button)
                     // Right toolbar area - will contain buttons in future
@@ -450,8 +505,8 @@ impl Render for TerminalView {
                             .w(px(10.0))
                             .h_full()
                             .border_l_1()
-                            .border_color(colors::border())
-                    )
+                            .border_color(colors::border()),
+                    ),
             )
             // Terminal content area
             .child(
@@ -459,7 +514,7 @@ impl Render for TerminalView {
                     .flex_1()
                     .w_full()
                     .overflow_hidden()
-                    .child(terminal_content)
+                    .child(terminal_content),
             )
     }
 }

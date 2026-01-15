@@ -1,3 +1,6 @@
+[workspace]
+members = ["manifest-core"]
+
 [package]
 name = "manifest"
 version = "0.1.15"
@@ -11,6 +14,8 @@ name = "mfst"
 path = "src/main.rs"
 
 [dependencies]
+# Core library (models + database)
+manifest-core = { path = "manifest-core" }
 # Async runtime
 tokio = { version = "1", features = ["full"] }
 
@@ -46,6 +51,7 @@ chrono = { version = "0.4", features = ["serde"] }
 thiserror = "2"
 anyhow = "1"
 directories = "6"
+dirs = "5"
 
 [dev-dependencies]
 tokio-test = "0.4"

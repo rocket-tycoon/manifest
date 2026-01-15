@@ -194,11 +194,11 @@ mod protocol {
         let tools = result.get("tools").expect("Expected tools array");
         let tools_array = tools.as_array().expect("Tools should be array");
 
-        // We have 18 tools
+        // We have 19 tools
         assert_eq!(
             tools_array.len(),
-            18,
-            "Expected 18 tools, got {}",
+            19,
+            "Expected 19 tools, got {}",
             tools_array.len()
         );
 

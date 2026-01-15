@@ -3,25 +3,61 @@
 //! A GPUI application with a feature explorer panel, feature editor, and terminal.
 
 mod active_context;
+mod context_file;
 
 use std::cell::Cell;
 use std::sync::Arc;
 
 use active_context::ActiveFeatureContext;
 
+use feature_editor::{Event as EditorEvent, FeatureEditor};
+use feature_panel::{Event as PanelEvent, FeaturePanel};
 use gpui::{
-    actions, div, point, prelude::*, px, relative, size, App, Application, Bounds, Context,
-    CursorStyle, Entity, Focusable, KeyBinding, Menu, MenuItem, MouseButton,
-    MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement, Render, Styled,
-    TitlebarOptions, Window, WindowBounds, WindowOptions,
+    App, Application, Bounds, Context, CursorStyle, Entity, Focusable, KeyBinding, Menu, MenuItem,
+    MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement, Render, Styled,
+    TitlebarOptions, Window, WindowBounds, WindowOptions, actions, div, point, prelude::*, px,
+    relative, size,
 };
-use feature_editor::{FeatureEditor, Event as EditorEvent};
-use feature_panel::{FeaturePanel, Event as PanelEvent};
-use manifest_client::ManifestClient;
+use manifest_core::db::Database;
 use parking_lot::Mutex;
 use terminal::mappings::colors::TerminalColors;
 use terminal_view::TerminalView;
 use uuid::Uuid;
+
+/// Convert manifest_core types to manifest_client types for feature_panel compatibility.
+mod convert {
+    use manifest_client::{Feature, FeatureState};
+    use manifest_core::models::{FeatureState as CoreState, FeatureTreeNode};
+
+    fn convert_state(state: CoreState) -> FeatureState {
+        match state {
+            CoreState::Proposed => FeatureState::Proposed,
+            CoreState::Specified => FeatureState::Specified,
+            CoreState::Implemented => FeatureState::Implemented,
+            CoreState::Deprecated => FeatureState::Deprecated,
+        }
+    }
+
+    pub fn tree_node_to_feature(node: FeatureTreeNode) -> Feature {
+        Feature {
+            id: node.feature.id,
+            project_id: node.feature.project_id,
+            parent_id: node.feature.parent_id,
+            title: node.feature.title,
+            details: node.feature.details,
+            desired_details: node.feature.desired_details,
+            state: convert_state(node.feature.state),
+            priority: node.feature.priority,
+            created_at: node.feature.created_at.to_rfc3339(),
+            updated_at: node.feature.updated_at.to_rfc3339(),
+            children: node
+                .children
+                .into_iter()
+                .map(tree_node_to_feature)
+                .collect(),
+        }
+    }
+}
 
 actions!(app, [Quit, Open, OpenRecent, Save]);
 
@@ -30,11 +66,21 @@ mod colors {
     use gpui::Hsla;
 
     pub fn divider() -> Hsla {
-        Hsla { h: 210.0 / 360.0, s: 0.10, l: 0.25, a: 1.0 }
+        Hsla {
+            h: 210.0 / 360.0,
+            s: 0.10,
+            l: 0.25,
+            a: 1.0,
+        }
     }
 
     pub fn divider_hover() -> Hsla {
-        Hsla { h: 220.0 / 360.0, s: 1.0, l: 0.75, a: 0.5 }
+        Hsla {
+            h: 220.0 / 360.0,
+            s: 1.0,
+            l: 0.75,
+            a: 0.5,
+        }
     }
 }
 
@@ -50,9 +96,7 @@ fn set_menus(cx: &mut App) {
     cx.set_menus(vec![
         Menu {
             name: "Manifest".into(),
-            items: vec![
-                MenuItem::action("Quit Manifest", Quit),
-            ],
+            items: vec![MenuItem::action("Quit Manifest", Quit)],
         },
         Menu {
             name: "File".into(),
@@ -89,27 +133,35 @@ impl ManifestApp {
 
         // Subscribe to feature panel selection events
         let feature_editor_clone = feature_editor.clone();
-        cx.subscribe(&feature_panel, move |_this, _panel, event: &PanelEvent, cx| {
-            if let PanelEvent::FeatureSelected(feature_id) = event {
-                Self::on_feature_selected(*feature_id, &feature_editor_clone, cx);
-            }
-        }).detach();
+        cx.subscribe(
+            &feature_panel,
+            move |_this, _panel, event: &PanelEvent, cx| {
+                if let PanelEvent::FeatureSelected(feature_id) = event {
+                    Self::on_feature_selected(*feature_id, &feature_editor_clone, cx);
+                }
+            },
+        )
+        .detach();
 
         // Subscribe to editor events for dirty close handling
-        cx.subscribe(&feature_editor, |_this, _editor, event: &EditorEvent, cx| {
-            match event {
-                EditorEvent::FeatureSaved(id) => {
-                    eprintln!("Feature {} saved", id);
+        cx.subscribe(
+            &feature_editor,
+            |_this, _editor, event: &EditorEvent, cx| {
+                match event {
+                    EditorEvent::FeatureSaved(id) => {
+                        eprintln!("Feature {} saved", id);
+                    }
+                    EditorEvent::SaveFailed(id, err) => {
+                        eprintln!("Failed to save feature {}: {}", id, err);
+                    }
+                    EditorEvent::DirtyCloseRequested(idx) => {
+                        // TODO: Show prompt dialog
+                        eprintln!("Dirty close requested for tab {}", idx);
+                    }
                 }
-                EditorEvent::SaveFailed(id, err) => {
-                    eprintln!("Failed to save feature {}: {}", id, err);
-                }
-                EditorEvent::DirtyCloseRequested(idx) => {
-                    // TODO: Show prompt dialog
-                    eprintln!("Dirty close requested for tab {}", idx);
-                }
-            }
-        }).detach();
+            },
+        )
+        .detach();
 
         // Focus the terminal on startup
         let focus_handle = terminal_view.focus_handle(cx);
@@ -119,9 +171,9 @@ impl ManifestApp {
         let feature_panel_clone = feature_panel.clone();
         let background_executor = cx.background_executor().clone();
         cx.spawn(async move |_this, cx| {
-            let result = background_executor.spawn(async move {
-                Self::fetch_features()
-            }).await;
+            let result = background_executor
+                .spawn(async move { Self::fetch_features() })
+                .await;
 
             match result {
                 Ok(features) => {
@@ -137,7 +189,8 @@ impl ManifestApp {
                     });
                 }
             }
-        }).detach();
+        })
+        .detach();
 
         ManifestApp {
             feature_panel,
@@ -156,13 +209,20 @@ impl ManifestApp {
         let background_executor = cx.background_executor().clone();
 
         cx.spawn(async move |cx| {
-            let result = background_executor.spawn(async move {
-                let client = ManifestClient::localhost();
-                client.get_feature(&feature_id)
-            }).await;
+            let result = background_executor
+                .spawn(async move {
+                    let db = Database::open_default()?;
+                    db.get_feature(feature_id)
+                })
+                .await;
 
             match result {
                 Ok(Some(feature)) => {
+                    // Write to context file for MCP server
+                    if let Err(e) = context_file::write_context(feature.id, &feature.title) {
+                        eprintln!("Failed to write context file: {}", e);
+                    }
+
                     // Update global active feature context
                     cx.update(|cx| {
                         ActiveFeatureContext::set(
@@ -177,12 +237,7 @@ impl ManifestApp {
 
                     // Update editor
                     cx.update_entity(&editor_clone, |editor, cx| {
-                        editor.open_feature(
-                            feature.id,
-                            feature.title,
-                            feature.details,
-                            cx,
-                        );
+                        editor.open_feature(feature.id, feature.title, feature.details, cx);
                     });
                 }
                 Ok(None) => {
@@ -192,21 +247,36 @@ impl ManifestApp {
                     eprintln!("Failed to load feature: {}", e);
                 }
             }
-        }).detach();
+        })
+        .detach();
     }
 
-    /// Fetch features from the Manifest API (blocking, runs on background thread).
+    /// Fetch features directly from the database (blocking, runs on background thread).
     fn fetch_features() -> Result<Vec<manifest_client::Feature>, String> {
-        let client = ManifestClient::localhost();
+        let db = Database::open_default().map_err(|e| format!("Failed to open database: {}", e))?;
+        db.migrate()
+            .map_err(|e| format!("Failed to migrate database: {}", e))?;
 
         let project_path = "/Users/alastair/Documents/work/rocket-tycoon/RocketManifest";
 
-        if let Ok(Some(project)) = client.get_project_by_directory(project_path) {
-            eprintln!("Found project '{}' for directory", project.name);
-            match client.get_feature_tree(&project.id) {
+        // Try to find project by directory
+        if let Ok(Some(project_with_dirs)) = db.get_project_by_directory(project_path) {
+            eprintln!(
+                "Found project '{}' for directory",
+                project_with_dirs.project.name
+            );
+            match db.get_feature_tree(project_with_dirs.project.id) {
                 Ok(features) => {
-                    eprintln!("Loaded {} features from '{}'", features.len(), project.name);
-                    return Ok(features);
+                    eprintln!(
+                        "Loaded {} features from '{}'",
+                        features.len(),
+                        project_with_dirs.project.name
+                    );
+                    let converted: Vec<_> = features
+                        .into_iter()
+                        .map(convert::tree_node_to_feature)
+                        .collect();
+                    return Ok(converted);
                 }
                 Err(e) => {
                     eprintln!("Error fetching features: {}", e);
@@ -215,14 +285,23 @@ impl ManifestApp {
         }
 
         // Fallback: find first project with features
-        let projects = client.get_projects()
+        let projects = db
+            .get_all_projects()
             .map_err(|e| format!("Failed to fetch projects: {}", e))?;
 
         for project in &projects {
-            match client.get_feature_tree(&project.id) {
+            match db.get_feature_tree(project.id) {
                 Ok(features) if !features.is_empty() => {
-                    eprintln!("Found {} features in project '{}'", features.len(), project.name);
-                    return Ok(features);
+                    eprintln!(
+                        "Found {} features in project '{}'",
+                        features.len(),
+                        project.name
+                    );
+                    let converted: Vec<_> = features
+                        .into_iter()
+                        .map(convert::tree_node_to_feature)
+                        .collect();
+                    return Ok(converted);
                 }
                 Ok(_) => continue,
                 Err(e) => {
@@ -235,7 +314,12 @@ impl ManifestApp {
     }
 
     /// Handle mouse down on divider.
-    fn on_divider_mouse_down(&mut self, event: &MouseDownEvent, _window: &mut Window, _cx: &mut Context<Self>) {
+    fn on_divider_mouse_down(
+        &mut self,
+        event: &MouseDownEvent,
+        _window: &mut Window,
+        _cx: &mut Context<Self>,
+    ) {
         if event.button == MouseButton::Left {
             self.dragging_divider.set(true);
             // Convert Pixels to f32 using division
@@ -250,12 +334,22 @@ impl ManifestApp {
     }
 
     /// Handle mouse up (stop dragging).
-    fn on_divider_mouse_up(&mut self, _event: &MouseUpEvent, _window: &mut Window, _cx: &mut Context<Self>) {
+    fn on_divider_mouse_up(
+        &mut self,
+        _event: &MouseUpEvent,
+        _window: &mut Window,
+        _cx: &mut Context<Self>,
+    ) {
         self.dragging_divider.set(false);
     }
 
     /// Handle mouse move while dragging.
-    fn on_divider_mouse_move(&mut self, event: &MouseMoveEvent, _window: &mut Window, cx: &mut Context<Self>) {
+    fn on_divider_mouse_move(
+        &mut self,
+        event: &MouseMoveEvent,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if !self.dragging_divider.get() {
             return;
         }
@@ -280,8 +374,10 @@ impl ManifestApp {
         let new_terminal_flex = (flexes[1] - flex_delta * total_flex).max(0.1);
 
         // Check minimum heights
-        let editor_height = (new_editor_flex / (new_editor_flex + new_terminal_flex)) * total_height;
-        let terminal_height = (new_terminal_flex / (new_editor_flex + new_terminal_flex)) * total_height;
+        let editor_height =
+            (new_editor_flex / (new_editor_flex + new_terminal_flex)) * total_height;
+        let terminal_height =
+            (new_terminal_flex / (new_editor_flex + new_terminal_flex)) * total_height;
 
         if editor_height >= MIN_PANE_HEIGHT && terminal_height >= MIN_PANE_HEIGHT {
             flexes[0] = new_editor_flex;
@@ -337,7 +433,7 @@ impl Render for ManifestApp {
                             .flex_basis(relative(editor_ratio))
                             .min_h(px(MIN_PANE_HEIGHT))
                             .w_full()
-                            .child(self.feature_editor.clone())
+                            .child(self.feature_editor.clone()),
                     )
                     // Divider
                     .child(
@@ -349,13 +445,11 @@ impl Render for ManifestApp {
                             .items_center()
                             .justify_center()
                             .cursor(CursorStyle::ResizeRow)
-                            .on_mouse_down(MouseButton::Left, cx.listener(Self::on_divider_mouse_down))
-                            .child(
-                                div()
-                                    .h(px(DIVIDER_SIZE))
-                                    .w_full()
-                                    .bg(divider_color)
+                            .on_mouse_down(
+                                MouseButton::Left,
+                                cx.listener(Self::on_divider_mouse_down),
                             )
+                            .child(div().h(px(DIVIDER_SIZE)).w_full().bg(divider_color)),
                     )
                     // Bottom: Terminal
                     .child(
@@ -366,8 +460,8 @@ impl Render for ManifestApp {
                             .flex_basis(relative(terminal_ratio))
                             .min_h(px(MIN_PANE_HEIGHT))
                             .w_full()
-                            .child(self.terminal_view.clone())
-                    )
+                            .child(self.terminal_view.clone()),
+                    ),
             )
     }
 }

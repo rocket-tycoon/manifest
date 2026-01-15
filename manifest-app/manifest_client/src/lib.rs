@@ -117,8 +117,15 @@ impl ManifestClient {
 
     /// Get a project by directory path (blocking).
     /// Returns the project associated with the given directory, or None if not found.
-    pub fn get_project_by_directory(&self, path: &str) -> Result<Option<ProjectWithDirectories>, ClientError> {
-        let url = format!("{}/projects/by-directory?path={}", self.base_url, urlencoding::encode(path));
+    pub fn get_project_by_directory(
+        &self,
+        path: &str,
+    ) -> Result<Option<ProjectWithDirectories>, ClientError> {
+        let url = format!(
+            "{}/projects/by-directory?path={}",
+            self.base_url,
+            urlencoding::encode(path)
+        );
         match ureq::get(&url).call() {
             Ok(response) => {
                 let project: ProjectWithDirectories = response.into_json()?;
@@ -144,12 +151,14 @@ impl ManifestClient {
 
     /// Update a feature's details (blocking).
     /// Only updates the fields provided in the input.
-    pub fn update_feature(&self, id: &Uuid, details: Option<String>) -> Result<Feature, ClientError> {
+    pub fn update_feature(
+        &self,
+        id: &Uuid,
+        details: Option<String>,
+    ) -> Result<Feature, ClientError> {
         let url = format!("{}/features/{}", self.base_url, id);
         let body = serde_json::json!({ "details": details });
-        let response: Feature = ureq::put(&url)
-            .send_json(&body)?
-            .into_json()?;
+        let response: Feature = ureq::put(&url).send_json(&body)?.into_json()?;
         Ok(response)
     }
 }

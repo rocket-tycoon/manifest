@@ -3,12 +3,15 @@
 use gpui::{
     App, Bounds, Element, ElementId, FocusHandle, Font, FontStyle, FontWeight, GlobalElementId,
     Hitbox, HitboxBehavior, Hsla, InspectorElementId, IntoElement, LayoutId, Pixels, Point,
-    ShapedLine, Size, StrikethroughStyle, TextAlign, TextRun, UnderlineStyle, Window, fill,
-    point, px, size,
+    ShapedLine, Size, StrikethroughStyle, TextAlign, TextRun, UnderlineStyle, Window, fill, point,
+    px, size,
 };
 use itertools::Itertools;
 use std::panic::Location;
-use terminal::{Terminal, TerminalBounds, TerminalContent, mappings::colors::{TerminalColors, convert_color}};
+use terminal::{
+    Terminal, TerminalBounds, TerminalContent,
+    mappings::colors::{TerminalColors, convert_color},
+};
 
 use alacritty_terminal::term::cell::Flags;
 use alacritty_terminal::vte::ansi::CursorShape;
@@ -49,11 +52,7 @@ pub struct TerminalElement {
 }
 
 impl TerminalElement {
-    pub fn new(
-        terminal: gpui::Entity<Terminal>,
-        focus: FocusHandle,
-        focused: bool,
-    ) -> Self {
+    pub fn new(terminal: gpui::Entity<Terminal>, focus: FocusHandle, focused: bool) -> Self {
         TerminalElement {
             terminal,
             focus,
@@ -271,7 +270,10 @@ impl TerminalElement {
         };
 
         // Shape the character under the cursor for block cursor
-        let text = if shape == CursorShape::Block && content.cursor_char != ' ' && content.cursor_char != '\0' {
+        let text = if shape == CursorShape::Block
+            && content.cursor_char != ' '
+            && content.cursor_char != '\0'
+        {
             let cursor_char = content.cursor_char.to_string();
             let run = TextRun {
                 len: cursor_char.len(),
@@ -288,12 +290,11 @@ impl TerminalElement {
                 strikethrough: None,
             };
 
-            Some(window.text_system().shape_line(
-                cursor_char.into(),
-                px(14.0),
-                &[run],
-                None,
-            ))
+            Some(
+                window
+                    .text_system()
+                    .shape_line(cursor_char.into(), px(14.0), &[run], None),
+            )
         } else {
             None
         };
@@ -378,12 +379,9 @@ impl Element for TerminalElement {
             underline: None,
             strikethrough: None,
         };
-        let measured = window.text_system().shape_line(
-            "M".into(),
-            font_size,
-            &[measure_run],
-            None,
-        );
+        let measured = window
+            .text_system()
+            .shape_line("M".into(), font_size, &[measure_run], None);
         let cell_width = measured.width;
 
         let dimensions = TerminalBounds::new(line_height, cell_width, bounds);
@@ -399,23 +397,11 @@ impl Element for TerminalElement {
         let origin = bounds.origin;
 
         // Layout grid
-        let (background_rects, text_runs) = self.layout_grid(
-            &content,
-            &dimensions,
-            origin,
-            window,
-            cx,
-        );
+        let (background_rects, text_runs) =
+            self.layout_grid(&content, &dimensions, origin, window, cx);
 
         // Layout cursor
-        let cursor = self.layout_cursor(
-            &content,
-            &dimensions,
-            origin,
-            self.focused,
-            window,
-            cx,
-        );
+        let cursor = self.layout_cursor(&content, &dimensions, origin, self.focused, window, cx);
 
         LayoutState {
             hitbox,
@@ -446,14 +432,17 @@ impl Element for TerminalElement {
 
         // Paint text
         for text_run in &prepaint.text_runs {
-            text_run.line.paint(
-                text_run.position,
-                prepaint.dimensions.line_height(),
-                TextAlign::Left,
-                None,
-                window,
-                cx,
-            ).ok();
+            text_run
+                .line
+                .paint(
+                    text_run.position,
+                    prepaint.dimensions.line_height(),
+                    TextAlign::Left,
+                    None,
+                    window,
+                    cx,
+                )
+                .ok();
         }
 
         // Paint cursor
@@ -480,7 +469,8 @@ impl Element for TerminalElement {
                             None,
                             window,
                             cx,
-                        ).ok();
+                        )
+                        .ok();
                     }
                 }
                 CursorShape::HollowBlock => {
@@ -502,7 +492,10 @@ impl Element for TerminalElement {
                     // Bottom
                     window.paint_quad(fill(
                         Bounds {
-                            origin: point(cursor_bounds.origin.x, cursor_bounds.origin.y + cursor_bounds.size.height - stroke_width),
+                            origin: point(
+                                cursor_bounds.origin.x,
+                                cursor_bounds.origin.y + cursor_bounds.size.height - stroke_width,
+                            ),
                             size: size(cursor_bounds.size.width, stroke_width),
                         },
                         cursor_color,
@@ -518,7 +511,10 @@ impl Element for TerminalElement {
                     // Right
                     window.paint_quad(fill(
                         Bounds {
-                            origin: point(cursor_bounds.origin.x + cursor_bounds.size.width - stroke_width, cursor_bounds.origin.y),
+                            origin: point(
+                                cursor_bounds.origin.x + cursor_bounds.size.width - stroke_width,
+                                cursor_bounds.origin.y,
+                            ),
                             size: size(stroke_width, cursor_bounds.size.height),
                         },
                         cursor_color,
@@ -538,7 +534,10 @@ impl Element for TerminalElement {
                     // Horizontal bar at bottom
                     window.paint_quad(fill(
                         Bounds {
-                            origin: point(cursor.point.x, cursor.point.y + cursor.size.height - px(2.0)),
+                            origin: point(
+                                cursor.point.x,
+                                cursor.point.y + cursor.size.height - px(2.0),
+                            ),
                             size: size(cursor.size.width, px(2.0)),
                         },
                         cursor_color,

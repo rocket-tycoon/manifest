@@ -1,8 +1,7 @@
 //! Vertical scrollbar component for the feature editor.
 
 use gpui::{
-    div, px, CursorStyle, ElementId, InteractiveElement, IntoElement,
-    ParentElement, Styled,
+    CursorStyle, ElementId, InteractiveElement, IntoElement, ParentElement, Styled, div, px,
 };
 
 /// Minimum thumb size to ensure it's clickable.
@@ -17,19 +16,39 @@ mod colors {
     use gpui::Hsla;
 
     pub fn track() -> Hsla {
-        Hsla { h: 210.0 / 360.0, s: 0.10, l: 0.12, a: 0.5 }
+        Hsla {
+            h: 210.0 / 360.0,
+            s: 0.10,
+            l: 0.12,
+            a: 0.5,
+        }
     }
 
     pub fn thumb() -> Hsla {
-        Hsla { h: 210.0 / 360.0, s: 0.15, l: 0.35, a: 0.8 }
+        Hsla {
+            h: 210.0 / 360.0,
+            s: 0.15,
+            l: 0.35,
+            a: 0.8,
+        }
     }
 
     pub fn thumb_hover() -> Hsla {
-        Hsla { h: 210.0 / 360.0, s: 0.20, l: 0.45, a: 0.9 }
+        Hsla {
+            h: 210.0 / 360.0,
+            s: 0.20,
+            l: 0.45,
+            a: 0.9,
+        }
     }
 
     pub fn thumb_active() -> Hsla {
-        Hsla { h: 220.0 / 360.0, s: 0.30, l: 0.55, a: 1.0 }
+        Hsla {
+            h: 220.0 / 360.0,
+            s: 0.30,
+            l: 0.55,
+            a: 1.0,
+        }
     }
 }
 
@@ -39,7 +58,9 @@ pub enum ScrollbarState {
     #[default]
     Inactive,
     Hovered,
-    Dragging { start_offset: f32 },
+    Dragging {
+        start_offset: f32,
+    },
 }
 
 /// Scrollbar metrics calculated from content.
@@ -106,7 +127,9 @@ pub fn render_scrollbar(
         return div().w(px(SCROLLBAR_WIDTH)).into_any_element();
     }
 
-    let thumb_fraction = metrics.thumb_fraction().max(MINIMUM_THUMB_SIZE / metrics.viewport_height.max(1.0));
+    let thumb_fraction = metrics
+        .thumb_fraction()
+        .max(MINIMUM_THUMB_SIZE / metrics.viewport_height.max(1.0));
     let thumb_position = metrics.thumb_position();
 
     // Calculate thumb bounds within track
@@ -137,7 +160,7 @@ pub fn render_scrollbar(
                 .w(px(SCROLLBAR_WIDTH - SCROLLBAR_PADDING * 2.0))
                 .h(px(thumb_height))
                 .rounded(px(3.0))
-                .bg(thumb_color)
+                .bg(thumb_color),
         )
         .into_any_element()
 }

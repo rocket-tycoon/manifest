@@ -117,7 +117,10 @@ impl FeatureEditorTab {
 
     /// Get the current line text.
     pub fn current_line(&self) -> &str {
-        self.lines.get(self.cursor.line).map(|s| s.as_str()).unwrap_or("")
+        self.lines
+            .get(self.cursor.line)
+            .map(|s| s.as_str())
+            .unwrap_or("")
     }
 
     /// Get the length of the current line.
@@ -214,7 +217,11 @@ impl FeatureEditorTab {
             }
         } else {
             // Multi-line insert
-            let current_line = self.lines.get(self.cursor.line).cloned().unwrap_or_default();
+            let current_line = self
+                .lines
+                .get(self.cursor.line)
+                .cloned()
+                .unwrap_or_default();
             let col = self.cursor.column.min(current_line.len());
             let (before, after) = current_line.split_at(col);
 
@@ -232,7 +239,8 @@ impl FeatureEditorTab {
             new_lines.push(last_line.clone());
 
             // Replace current line with new lines
-            self.lines.splice(self.cursor.line..=self.cursor.line, new_lines);
+            self.lines
+                .splice(self.cursor.line..=self.cursor.line, new_lines);
 
             // Update cursor position
             self.cursor.line += insert_lines.len() - 1;
@@ -284,7 +292,11 @@ impl FeatureEditorTab {
         if self.cursor.column > 0 {
             // Compute boundary first (immutable borrow)
             let prev_boundary = {
-                let line = self.lines.get(self.cursor.line).map(|s| s.as_str()).unwrap_or("");
+                let line = self
+                    .lines
+                    .get(self.cursor.line)
+                    .map(|s| s.as_str())
+                    .unwrap_or("");
                 self.previous_grapheme_boundary(self.cursor.column, line)
             };
             // Now mutate (mutable borrow in separate scope)
@@ -312,13 +324,21 @@ impl FeatureEditorTab {
         }
 
         // Check what action to take (immutable borrow)
-        let line_len = self.lines.get(self.cursor.line).map(|s| s.len()).unwrap_or(0);
+        let line_len = self
+            .lines
+            .get(self.cursor.line)
+            .map(|s| s.len())
+            .unwrap_or(0);
         let total_lines = self.lines.len();
 
         if self.cursor.column < line_len {
             // Compute boundary first (immutable borrow)
             let next_boundary = {
-                let line = self.lines.get(self.cursor.line).map(|s| s.as_str()).unwrap_or("");
+                let line = self
+                    .lines
+                    .get(self.cursor.line)
+                    .map(|s| s.as_str())
+                    .unwrap_or("");
                 self.next_grapheme_boundary(self.cursor.column, line)
             };
             // Now mutate (mutable borrow in separate scope)
@@ -341,7 +361,11 @@ impl FeatureEditorTab {
             self.delete_selection();
         }
 
-        let current_line = self.lines.get(self.cursor.line).cloned().unwrap_or_default();
+        let current_line = self
+            .lines
+            .get(self.cursor.line)
+            .cloned()
+            .unwrap_or_default();
         let col = self.cursor.column.min(current_line.len());
 
         let (before, after) = current_line.split_at(col);
@@ -477,7 +501,8 @@ mod tests {
 
     #[test]
     fn test_insert_newline() {
-        let mut tab = FeatureEditorTab::new(0, Uuid::new_v4(), "Test".into(), Some("Hello World".into()));
+        let mut tab =
+            FeatureEditorTab::new(0, Uuid::new_v4(), "Test".into(), Some("Hello World".into()));
         tab.cursor.column = 5;
         tab.insert_newline();
         assert_eq!(tab.content(), "Hello\n World");
@@ -495,7 +520,12 @@ mod tests {
 
     #[test]
     fn test_backspace_merge_lines() {
-        let mut tab = FeatureEditorTab::new(0, Uuid::new_v4(), "Test".into(), Some("Hello\nWorld".into()));
+        let mut tab = FeatureEditorTab::new(
+            0,
+            Uuid::new_v4(),
+            "Test".into(),
+            Some("Hello\nWorld".into()),
+        );
         tab.cursor.line = 1;
         tab.cursor.column = 0;
         tab.backspace();

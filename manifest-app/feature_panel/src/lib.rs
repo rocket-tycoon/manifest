@@ -3,9 +3,9 @@
 use std::collections::HashSet;
 
 use gpui::{
-    div, px, App, Context, EventEmitter, Focusable, FocusHandle,
-    InteractiveElement, IntoElement, ParentElement, Render, ScrollWheelEvent,
-    SharedString, StatefulInteractiveElement, Styled, Window, rgba,
+    App, Context, EventEmitter, FocusHandle, Focusable, InteractiveElement, IntoElement,
+    ParentElement, Render, ScrollWheelEvent, SharedString, StatefulInteractiveElement, Styled,
+    Window, div, px, rgba,
 };
 use manifest_client::{Feature, FeatureState};
 use uuid::Uuid;
@@ -15,57 +15,122 @@ mod colors {
     use gpui::Rgba;
 
     pub fn header_background() -> Rgba {
-        Rgba { r: 0.082, g: 0.098, b: 0.118, a: 1.0 } // #15191e - darker for title bar
+        Rgba {
+            r: 0.082,
+            g: 0.098,
+            b: 0.118,
+            a: 1.0,
+        } // #15191e - darker for title bar
     }
 
     pub fn panel_background() -> Rgba {
-        Rgba { r: 0.114, g: 0.133, b: 0.157, a: 1.0 } // #1d2228 - panel.background
+        Rgba {
+            r: 0.114,
+            g: 0.133,
+            b: 0.157,
+            a: 1.0,
+        } // #1d2228 - panel.background
     }
 
     pub fn hover_background() -> Rgba {
-        Rgba { r: 0.243, g: 0.275, b: 0.302, a: 1.0 } // #3e464d - element.hover
+        Rgba {
+            r: 0.243,
+            g: 0.275,
+            b: 0.302,
+            a: 1.0,
+        } // #3e464d - element.hover
     }
 
     pub fn selected_background() -> Rgba {
-        Rgba { r: 0.216, g: 0.247, b: 0.278, a: 1.0 } // #373f47 - element.selected
+        Rgba {
+            r: 0.216,
+            g: 0.247,
+            b: 0.278,
+            a: 1.0,
+        } // #373f47 - element.selected
     }
 
     pub fn text_primary() -> Rgba {
-        Rgba { r: 0.761, g: 0.839, b: 0.918, a: 1.0 } // #c2d6ea - text
+        Rgba {
+            r: 0.761,
+            g: 0.839,
+            b: 0.918,
+            a: 1.0,
+        } // #c2d6ea - text
     }
 
     pub fn text_muted() -> Rgba {
-        Rgba { r: 0.471, g: 0.522, b: 0.608, a: 1.0 } // #78859b - text.muted
+        Rgba {
+            r: 0.471,
+            g: 0.522,
+            b: 0.608,
+            a: 1.0,
+        } // #78859b - text.muted
     }
 
     // State icon colors (Pigs in Space theme-aligned)
     pub fn proposed_amber() -> Rgba {
-        Rgba { r: 0.973, g: 0.745, b: 0.325, a: 1.0 } // #f8be53 - warning
+        Rgba {
+            r: 0.973,
+            g: 0.745,
+            b: 0.325,
+            a: 1.0,
+        } // #f8be53 - warning
     }
 
     pub fn specified_green() -> Rgba {
-        Rgba { r: 0.765, g: 0.910, b: 0.553, a: 1.0 } // #c3e88d - success/green
+        Rgba {
+            r: 0.765,
+            g: 0.910,
+            b: 0.553,
+            a: 1.0,
+        } // #c3e88d - success/green
     }
 
     pub fn implemented_blue() -> Rgba {
-        Rgba { r: 0.510, g: 0.667, b: 1.0, a: 1.0 } // #82aaff - info/blue
+        Rgba {
+            r: 0.510,
+            g: 0.667,
+            b: 1.0,
+            a: 1.0,
+        } // #82aaff - info/blue
     }
 
     pub fn implemented_check() -> Rgba {
-        Rgba { r: 0.129, g: 0.149, b: 0.173, a: 1.0 } // #21262c - dark checkmark
+        Rgba {
+            r: 0.129,
+            g: 0.149,
+            b: 0.173,
+            a: 1.0,
+        } // #21262c - dark checkmark
     }
 
     pub fn deprecated_gray() -> Rgba {
-        Rgba { r: 0.388, g: 0.431, b: 0.502, a: 1.0 } // #636e80 - text.muted
+        Rgba {
+            r: 0.388,
+            g: 0.431,
+            b: 0.502,
+            a: 1.0,
+        } // #636e80 - text.muted
     }
 
     // Scrollbar colors
     pub fn scrollbar_track() -> Rgba {
-        Rgba { r: 0.082, g: 0.098, b: 0.118, a: 0.5 } // semi-transparent dark
+        Rgba {
+            r: 0.082,
+            g: 0.098,
+            b: 0.118,
+            a: 0.5,
+        } // semi-transparent dark
     }
 
     pub fn scrollbar_thumb() -> Rgba {
-        Rgba { r: 0.243, g: 0.275, b: 0.302, a: 0.8 } // element.hover
+        Rgba {
+            r: 0.243,
+            g: 0.275,
+            b: 0.302,
+            a: 0.8,
+        } // element.hover
     }
 }
 
@@ -159,7 +224,12 @@ impl FeaturePanel {
     }
 
     /// Handle scroll wheel events.
-    fn on_scroll_wheel(&mut self, event: &ScrollWheelEvent, _window: &mut Window, cx: &mut Context<Self>) {
+    fn on_scroll_wheel(
+        &mut self,
+        event: &ScrollWheelEvent,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let flat_features = self.flatten_features();
         let content_height = flat_features.len() as f32 * ROW_HEIGHT;
         let max_scroll = (content_height - self.visible_height).max(0.0);
@@ -208,7 +278,7 @@ impl FeaturePanel {
                     .w(px(SCROLLBAR_WIDTH - 4.0))
                     .h(px(thumb_height))
                     .rounded(px(3.0))
-                    .bg(colors::scrollbar_thumb())
+                    .bg(colors::scrollbar_thumb()),
             )
             .into_any_element()
     }
@@ -270,7 +340,7 @@ impl FeaturePanel {
                                 .rounded_tr(px(1.0))
                                 .border_1()
                                 .border_b_0()
-                                .border_color(folder_color)
+                                .border_color(folder_color),
                         )
                         // Back of folder (outline rectangle)
                         .child(
@@ -282,7 +352,7 @@ impl FeaturePanel {
                                 .h(px(8.0))
                                 .rounded(px(1.0))
                                 .border_1()
-                                .border_color(folder_color)
+                                .border_color(folder_color),
                         )
                         // Front flap (solid, creates open look)
                         .child(
@@ -293,8 +363,8 @@ impl FeaturePanel {
                                 .w(px(14.0))
                                 .h(px(7.0))
                                 .rounded(px(1.0))
-                                .bg(folder_color)
-                        )
+                                .bg(folder_color),
+                        ),
                 )
         } else {
             // Closed folder - complete outlined folder shape with tab
@@ -321,7 +391,7 @@ impl FeaturePanel {
                                 .rounded_tr(px(1.0))
                                 .border_1()
                                 .border_b_0()
-                                .border_color(folder_color)
+                                .border_color(folder_color),
                         )
                         // Main folder body (outline rectangle)
                         .child(
@@ -333,8 +403,8 @@ impl FeaturePanel {
                                 .h(px(9.0))
                                 .rounded(px(1.0))
                                 .border_1()
-                                .border_color(folder_color)
-                        )
+                                .border_color(folder_color),
+                        ),
                 )
         }
     }
@@ -353,7 +423,7 @@ impl FeaturePanel {
                     .w(px(8.0))
                     .h(px(8.0))
                     .rounded(px(4.0))
-                    .bg(colors::proposed_amber())
+                    .bg(colors::proposed_amber()),
             )
     }
 
@@ -373,7 +443,7 @@ impl FeaturePanel {
                     .h(px(14.0))
                     .rounded(px(7.0))
                     .border_3()
-                    .border_color(colors::specified_green())
+                    .border_color(colors::specified_green()),
             )
     }
 
@@ -400,8 +470,8 @@ impl FeaturePanel {
                             .text_color(colors::implemented_check())
                             .text_size(px(9.0))
                             .font_weight(gpui::FontWeight::BOLD)
-                            .child("✓")
-                    )
+                            .child("✓"),
+                    ),
             )
     }
 
@@ -420,12 +490,16 @@ impl FeaturePanel {
                     .h(px(10.0))
                     .rounded(px(1.0))
                     .border_2()
-                    .border_color(colors::deprecated_gray())
+                    .border_color(colors::deprecated_gray()),
             )
     }
 
     /// Render a single feature row.
-    fn render_feature_row(&self, feature: &FlatFeature, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+    fn render_feature_row(
+        &self,
+        feature: &FlatFeature,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement + use<> {
         let id = feature.id;
         let is_selected = self.selected_id == Some(id);
         let depth = feature.depth;
@@ -484,7 +558,7 @@ impl FeaturePanel {
                     .w(px(12.0))
                     .text_color(colors::text_muted())
                     .text_size(px(10.0))
-                    .child(disclosure)
+                    .child(disclosure),
             )
             // Icon (folder or state)
             .child(icon_element)
@@ -495,7 +569,7 @@ impl FeaturePanel {
                     .text_color(colors::text_primary())
                     .text_size(px(13.0))
                     .overflow_hidden()
-                    .child(title)
+                    .child(title),
             )
     }
 }
@@ -543,8 +617,8 @@ impl Render for FeaturePanel {
                             .text_color(colors::text_primary())
                             .text_size(px(12.0))
                             .font_weight(gpui::FontWeight::BOLD)
-                            .child("MANIFEST")
-                    )
+                            .child("MANIFEST"),
+                    ),
             )
             .child(
                 // Content area with scrollbar
@@ -564,22 +638,18 @@ impl Render for FeaturePanel {
                             .h_full()
                             .overflow_hidden()
                             .child(match &self.load_state {
-                                LoadState::Loading => {
-                                    div()
-                                        .p(px(12.0))
-                                        .text_color(colors::text_muted())
-                                        .text_size(px(13.0))
-                                        .child("Loading features...")
-                                        .into_any_element()
-                                }
-                                LoadState::Error(err) => {
-                                    div()
-                                        .p(px(12.0))
-                                        .text_color(rgba(0xf14c4cff))
-                                        .text_size(px(13.0))
-                                        .child(format!("Error: {}", err))
-                                        .into_any_element()
-                                }
+                                LoadState::Loading => div()
+                                    .p(px(12.0))
+                                    .text_color(colors::text_muted())
+                                    .text_size(px(13.0))
+                                    .child("Loading features...")
+                                    .into_any_element(),
+                                LoadState::Error(err) => div()
+                                    .p(px(12.0))
+                                    .text_color(rgba(0xf14c4cff))
+                                    .text_size(px(13.0))
+                                    .child(format!("Error: {}", err))
+                                    .into_any_element(),
                                 LoadState::Loaded => {
                                     // Render all features with scroll offset transform
                                     let mut rows = Vec::new();
@@ -595,10 +665,10 @@ impl Render for FeaturePanel {
                                         .children(rows)
                                         .into_any_element()
                                 }
-                            })
+                            }),
                     )
                     // Scrollbar
-                    .child(self.render_scrollbar(content_height))
+                    .child(self.render_scrollbar(content_height)),
             )
     }
 }

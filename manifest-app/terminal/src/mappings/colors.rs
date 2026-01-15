@@ -169,16 +169,12 @@ pub fn convert_color(color: &alacritty_terminal::vte::ansi::Color) -> Hsla {
             };
             rgba.into()
         }
-        Color::Spec(rgb) => {
-            Hsla::from(Rgba {
-                r: rgb.r as f32 / 255.0,
-                g: rgb.g as f32 / 255.0,
-                b: rgb.b as f32 / 255.0,
-                a: 1.0,
-            })
-        }
-        Color::Indexed(index) => {
-            get_indexed_color(*index).into()
-        }
+        Color::Spec(rgb) => Hsla::from(Rgba {
+            r: rgb.r as f32 / 255.0,
+            g: rgb.g as f32 / 255.0,
+            b: rgb.b as f32 / 255.0,
+            a: 1.0,
+        }),
+        Color::Indexed(index) => get_indexed_color(*index).into(),
     }
 }

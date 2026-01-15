@@ -40,3 +40,6 @@ terminal_view = { path = "terminal_view" }
 manifest_client = { path = "manifest_client" }
 feature_panel = { path = "feature_panel" }
 feature_editor = { path = "feature_editor" }
+
+# Core library (direct database access)
+manifest-core = { path = "../manifest-core" }

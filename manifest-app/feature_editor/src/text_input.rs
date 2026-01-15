@@ -1,7 +1,7 @@
 use gpui::{
-    point, px, relative, size, App, Bounds, Element, ElementId, ElementInputHandler,
-    Entity, Focusable, Font, FontStyle, FontWeight, GlobalElementId, Hitbox, LayoutId, Pixels,
-    ShapedLine, SharedString, Style, TextRun, Window, fill,
+    App, Bounds, Element, ElementId, ElementInputHandler, Entity, Focusable, Font, FontStyle,
+    FontWeight, GlobalElementId, Hitbox, LayoutId, Pixels, ShapedLine, SharedString, Style,
+    TextRun, Window, fill, point, px, relative, size,
 };
 
 use crate::editor::FeatureEditor;
@@ -11,19 +11,39 @@ mod colors {
     use gpui::Hsla;
 
     pub fn background() -> Hsla {
-        Hsla { h: 210.0 / 360.0, s: 0.13, l: 0.15, a: 1.0 }
+        Hsla {
+            h: 210.0 / 360.0,
+            s: 0.13,
+            l: 0.15,
+            a: 1.0,
+        }
     }
 
     pub fn text() -> Hsla {
-        Hsla { h: 210.0 / 360.0, s: 0.45, l: 0.84, a: 1.0 }
+        Hsla {
+            h: 210.0 / 360.0,
+            s: 0.45,
+            l: 0.84,
+            a: 1.0,
+        }
     }
 
     pub fn selection() -> Hsla {
-        Hsla { h: 210.0 / 360.0, s: 0.5, l: 0.4, a: 0.4 }
+        Hsla {
+            h: 210.0 / 360.0,
+            s: 0.5,
+            l: 0.4,
+            a: 0.4,
+        }
     }
 
     pub fn cursor() -> Hsla {
-        Hsla { h: 220.0 / 360.0, s: 1.0, l: 0.75, a: 1.0 }
+        Hsla {
+            h: 220.0 / 360.0,
+            s: 1.0,
+            l: 0.75,
+            a: 1.0,
+        }
     }
 }
 
@@ -131,7 +151,9 @@ impl Element for MultiLineTextElement {
                 underline: None,
                 strikethrough: None,
             };
-            let shaped = window.text_system().shape_line("M".into(), font_size, &[run], None);
+            let shaped = window
+                .text_system()
+                .shape_line("M".into(), font_size, &[run], None);
             shaped.width
         };
         // Get actual char width from shaped text
@@ -142,7 +164,10 @@ impl Element for MultiLineTextElement {
         let padding_f32 = 50.0_f32;
         let content_bounds = Bounds {
             origin: point(bounds.origin.x + padding, bounds.origin.y + padding),
-            size: size(bounds.size.width - padding * 2.0, bounds.size.height - padding * 2.0),
+            size: size(
+                bounds.size.width - padding * 2.0,
+                bounds.size.height - padding * 2.0,
+            ),
         };
 
         // Calculate max characters per line for soft wrapping (monospace makes this simple)
@@ -155,16 +180,17 @@ impl Element for MultiLineTextElement {
         let content_height_f32 = content_bounds.size.height / px(1.0);
 
         // Get active tab data
-        let (lines_data, cursor, selection_bounds_opt, scroll_offset) = if let Some(tab) = editor.active_tab() {
-            (
-                tab.lines.clone(),
-                tab.cursor,
-                tab.selection_bounds(),
-                tab.scroll_offset,
-            )
-        } else {
-            (vec![String::new()], Default::default(), None, 0.0)
-        };
+        let (lines_data, cursor, selection_bounds_opt, scroll_offset) =
+            if let Some(tab) = editor.active_tab() {
+                (
+                    tab.lines.clone(),
+                    tab.cursor,
+                    tab.selection_bounds(),
+                    tab.scroll_offset,
+                )
+            } else {
+                (vec![String::new()], Default::default(), None, 0.0)
+            };
 
         // Wrap logical lines into visual lines for soft-wrapping
         // Each entry is (logical_line_idx, start_col, text_segment)
@@ -223,7 +249,9 @@ impl Element for MultiLineTextElement {
                 underline: None,
                 strikethrough: None,
             };
-            let shaped = window.text_system().shape_line(display_text, font_size, &[run], None);
+            let shaped = window
+                .text_system()
+                .shape_line(display_text, font_size, &[run], None);
             shaped_lines.push(shaped);
         }
 
@@ -255,13 +283,17 @@ impl Element for MultiLineTextElement {
                 };
 
                 // Skip if selection doesn't intersect this visual line
-                if sel_start_col >= sel_end_col && !(logical_line > start.line && logical_line < end.line) {
+                if sel_start_col >= sel_end_col
+                    && !(logical_line > start.line && logical_line < end.line)
+                {
                     continue;
                 }
 
-                let line_y = content_bounds.origin.y + px((visual_idx - first_visible) as f32 * line_height_f32);
+                let line_y = content_bounds.origin.y
+                    + px((visual_idx - first_visible) as f32 * line_height_f32);
                 let start_x = content_bounds.origin.x + px(sel_start_col as f32 * char_width_f32);
-                let end_x = content_bounds.origin.x + px(sel_end_col.max(sel_start_col + 1) as f32 * char_width_f32);
+                let end_x = content_bounds.origin.x
+                    + px(sel_end_col.max(sel_start_col + 1) as f32 * char_width_f32);
 
                 selection_rects.push(Bounds::from_corners(
                     point(start_x, line_y),
@@ -277,10 +309,14 @@ impl Element for MultiLineTextElement {
                 let (logical_line, col_offset, ref text) = visual_lines[visual_idx];
                 let col_end = col_offset + text.len();
 
-                if logical_line == cursor.line && cursor.column >= col_offset && cursor.column <= col_end {
+                if logical_line == cursor.line
+                    && cursor.column >= col_offset
+                    && cursor.column <= col_end
+                {
                     let visual_col = cursor.column - col_offset;
                     let cursor_x = content_bounds.origin.x + px(visual_col as f32 * char_width_f32);
-                    let cursor_y = content_bounds.origin.y + px((visual_idx - first_visible) as f32 * line_height_f32);
+                    let cursor_y = content_bounds.origin.y
+                        + px((visual_idx - first_visible) as f32 * line_height_f32);
 
                     found = Some(Bounds::new(
                         point(cursor_x, cursor_y),

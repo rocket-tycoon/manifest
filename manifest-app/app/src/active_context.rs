@@ -20,9 +20,7 @@ impl Global for ActiveFeatureContext {}
 impl ActiveFeatureContext {
     /// Get the active feature context (returns default if not set).
     pub fn get(cx: &App) -> Self {
-        cx.try_global::<Self>()
-            .cloned()
-            .unwrap_or_default()
+        cx.try_global::<Self>().cloned().unwrap_or_default()
     }
 
     /// Update the active feature context.

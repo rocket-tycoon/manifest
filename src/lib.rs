@@ -1,4 +1,6 @@
 pub mod api;
-pub mod db;
 pub mod mcp;
-pub mod models;
+
+// Re-export from manifest-core for convenience
+pub use manifest_core::db;
+pub use manifest_core::models;

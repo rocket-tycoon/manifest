@@ -1,17 +1,16 @@
 use std::ops::Range;
 
 use gpui::{
-    actions, div, prelude::*, px, App, Bounds, ClipboardItem, Context,
-    CursorStyle, ElementId, EntityInputHandler, FocusHandle, Focusable, Hsla, KeyBinding,
-    MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, ScrollHandle,
-    ScrollWheelEvent, UTF16Selection, Window,
+    App, Bounds, ClipboardItem, Context, CursorStyle, ElementId, EntityInputHandler, FocusHandle,
+    Focusable, Hsla, KeyBinding, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels,
+    ScrollHandle, ScrollWheelEvent, UTF16Selection, Window, actions, div, prelude::*, px,
 };
 use manifest_client::ManifestClient;
 use uuid::Uuid;
 
 use crate::editor_tab::{CursorPosition, FeatureEditorTab};
-use crate::text_input::TextLayoutInfo;
 use crate::scrollbar::ScrollbarState;
+use crate::text_input::TextLayoutInfo;
 
 // Define editor actions
 actions!(
@@ -61,40 +60,85 @@ mod colors {
     use gpui::Hsla;
 
     pub fn background() -> Hsla {
-        Hsla { h: 210.0 / 360.0, s: 0.13, l: 0.15, a: 1.0 }
+        Hsla {
+            h: 210.0 / 360.0,
+            s: 0.13,
+            l: 0.15,
+            a: 1.0,
+        }
     }
 
     pub fn text() -> Hsla {
-        Hsla { h: 210.0 / 360.0, s: 0.45, l: 0.84, a: 1.0 }
+        Hsla {
+            h: 210.0 / 360.0,
+            s: 0.45,
+            l: 0.84,
+            a: 1.0,
+        }
     }
 
     pub fn text_muted() -> Hsla {
-        Hsla { h: 215.0 / 360.0, s: 0.12, l: 0.45, a: 1.0 }
+        Hsla {
+            h: 215.0 / 360.0,
+            s: 0.12,
+            l: 0.45,
+            a: 1.0,
+        }
     }
 
     pub fn tab_active_bg() -> Hsla {
-        Hsla { h: 210.0 / 360.0, s: 0.13, l: 0.15, a: 1.0 }
+        Hsla {
+            h: 210.0 / 360.0,
+            s: 0.13,
+            l: 0.15,
+            a: 1.0,
+        }
     }
 
     pub fn tab_inactive_bg() -> Hsla {
-        Hsla { h: 212.0 / 360.0, s: 0.15, l: 0.10, a: 1.0 }
+        Hsla {
+            h: 212.0 / 360.0,
+            s: 0.15,
+            l: 0.10,
+            a: 1.0,
+        }
     }
 
     pub fn tab_bar_bg() -> Hsla {
-        Hsla { h: 212.0 / 360.0, s: 0.15, l: 0.10, a: 1.0 }
+        Hsla {
+            h: 212.0 / 360.0,
+            s: 0.15,
+            l: 0.10,
+            a: 1.0,
+        }
     }
 
     pub fn border() -> Hsla {
-        Hsla { h: 210.0 / 360.0, s: 0.10, l: 0.25, a: 1.0 }
+        Hsla {
+            h: 210.0 / 360.0,
+            s: 0.10,
+            l: 0.25,
+            a: 1.0,
+        }
     }
 
     pub fn dirty_indicator() -> Hsla {
         // Blue accent for dirty state
-        Hsla { h: 220.0 / 360.0, s: 1.0, l: 0.75, a: 1.0 }
+        Hsla {
+            h: 220.0 / 360.0,
+            s: 1.0,
+            l: 0.75,
+            a: 1.0,
+        }
     }
 
     pub fn hover() -> Hsla {
-        Hsla { h: 212.0 / 360.0, s: 0.12, l: 0.28, a: 1.0 }
+        Hsla {
+            h: 212.0 / 360.0,
+            s: 0.12,
+            l: 0.28,
+            a: 1.0,
+        }
     }
 }
 
@@ -162,7 +206,8 @@ impl FeatureEditor {
         self.last_layout = None;
         self.scrollbar_state = ScrollbarState::default();
         // Scroll tab bar to show the new tab
-        self.tab_bar_scroll_handle.scroll_to_item(self.active_tab_idx);
+        self.tab_bar_scroll_handle
+            .scroll_to_item(self.active_tab_idx);
         cx.notify();
     }
 
@@ -194,7 +239,9 @@ impl FeatureEditor {
             (tab.feature_id, tab.content(), tab.is_dirty)
         };
 
-        if !is_dirty { return; }
+        if !is_dirty {
+            return;
+        }
 
         let client = self.client.clone();
 
@@ -206,9 +253,7 @@ impl FeatureEditor {
 
         // Save in background
         cx.background_executor()
-            .spawn(async move {
-                client.update_feature(&feature_id, Some(content))
-            })
+            .spawn(async move { client.update_feature(&feature_id, Some(content)) })
             .detach_and_log_err(cx);
 
         cx.emit(Event::FeatureSaved(feature_id));
@@ -216,7 +261,9 @@ impl FeatureEditor {
 
     /// Close the active tab (with dirty check handled by caller).
     pub fn close_active_tab(&mut self, cx: &mut Context<Self>) {
-        if self.tabs.is_empty() { return; }
+        if self.tabs.is_empty() {
+            return;
+        }
 
         // Check for dirty state
         if let Some(tab) = self.active_tab() {
@@ -231,7 +278,9 @@ impl FeatureEditor {
 
     /// Close a tab by index without checking dirty state.
     pub fn force_close_tab(&mut self, idx: usize, cx: &mut Context<Self>) {
-        if idx >= self.tabs.len() { return; }
+        if idx >= self.tabs.len() {
+            return;
+        }
 
         self.tabs.remove(idx);
 
@@ -266,7 +315,8 @@ impl FeatureEditor {
             self.active_tab_idx = (self.active_tab_idx + 1) % self.tabs.len();
             self.last_layout = None;
             self.scrollbar_state = ScrollbarState::default();
-            self.tab_bar_scroll_handle.scroll_to_item(self.active_tab_idx);
+            self.tab_bar_scroll_handle
+                .scroll_to_item(self.active_tab_idx);
             cx.notify();
         }
     }
@@ -281,7 +331,8 @@ impl FeatureEditor {
             };
             self.last_layout = None;
             self.scrollbar_state = ScrollbarState::default();
-            self.tab_bar_scroll_handle.scroll_to_item(self.active_tab_idx);
+            self.tab_bar_scroll_handle
+                .scroll_to_item(self.active_tab_idx);
             cx.notify();
         }
     }
@@ -466,7 +517,9 @@ impl FeatureEditor {
     // --- Mouse handlers ---
 
     fn on_mouse_down(&mut self, event: &MouseDownEvent, _: &mut Window, cx: &mut Context<Self>) {
-        if event.button != MouseButton::Left { return; }
+        if event.button != MouseButton::Left {
+            return;
+        }
 
         self.is_selecting = true;
         let pos = self.position_for_point(event.position);
@@ -487,7 +540,9 @@ impl FeatureEditor {
     }
 
     fn on_mouse_move(&mut self, event: &MouseMoveEvent, _: &mut Window, cx: &mut Context<Self>) {
-        if !self.is_selecting { return; }
+        if !self.is_selecting {
+            return;
+        }
 
         let pos = self.position_for_point(event.position);
         if let Some(tab) = self.active_tab_mut() {
@@ -499,14 +554,23 @@ impl FeatureEditor {
         }
     }
 
-    fn on_scroll_wheel(&mut self, event: &ScrollWheelEvent, _: &mut Window, cx: &mut Context<Self>) {
-        let Some(layout) = self.last_layout else { return };
+    fn on_scroll_wheel(
+        &mut self,
+        event: &ScrollWheelEvent,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(layout) = self.last_layout else {
+            return;
+        };
         let visible_height = self.visible_height;
 
         // Get line count before mutable borrow
         let line_count = self.active_tab().map(|t| t.line_count()).unwrap_or(0);
 
-        let Some(tab) = self.active_tab_mut() else { return };
+        let Some(tab) = self.active_tab_mut() else {
+            return;
+        };
 
         // Get scroll delta (convert Pixels to f32)
         let delta_y = event.delta.pixel_delta(px(layout.line_height)).y / px(1.0);
@@ -552,9 +616,13 @@ impl FeatureEditor {
 
     /// Ensure the cursor is visible by adjusting scroll offset.
     fn ensure_cursor_visible(&mut self) {
-        let Some(layout) = self.last_layout else { return };
+        let Some(layout) = self.last_layout else {
+            return;
+        };
         let visible_height = self.visible_height;
-        let Some(tab) = self.active_tab_mut() else { return };
+        let Some(tab) = self.active_tab_mut() else {
+            return;
+        };
 
         let cursor_y = tab.cursor.line as f32 * layout.line_height;
 
@@ -622,7 +690,10 @@ impl EntityInputHandler for FeatureEditor {
 
         Some(UTF16Selection {
             range: utf8_to_utf16_range(&content, &range),
-            reversed: tab.selection_anchor.map(|a| a > tab.cursor).unwrap_or(false),
+            reversed: tab
+                .selection_anchor
+                .map(|a| a > tab.cursor)
+                .unwrap_or(false),
         })
     }
 
@@ -633,7 +704,9 @@ impl EntityInputHandler for FeatureEditor {
     ) -> Option<Range<usize>> {
         let tab = self.active_tab()?;
         let content = tab.content();
-        tab.marked_range.as_ref().map(|r| utf8_to_utf16_range(&content, r))
+        tab.marked_range
+            .as_ref()
+            .map(|r| utf8_to_utf16_range(&content, r))
     }
 
     fn unmark_text(&mut self, _window: &mut Window, _cx: &mut Context<Self>) {
@@ -649,14 +722,20 @@ impl EntityInputHandler for FeatureEditor {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(tab) = self.active_tab_mut() else { return };
+        let Some(tab) = self.active_tab_mut() else {
+            return;
+        };
         let content = tab.content();
 
         let range = range_utf16
             .as_ref()
             .map(|r| utf16_to_utf8_range(&content, r))
             .or(tab.marked_range.clone())
-            .unwrap_or_else(|| tab.selected_range().unwrap_or(tab.position_to_offset(tab.cursor)..tab.position_to_offset(tab.cursor)));
+            .unwrap_or_else(|| {
+                tab.selected_range().unwrap_or(
+                    tab.position_to_offset(tab.cursor)..tab.position_to_offset(tab.cursor),
+                )
+            });
 
         // Replace text
         let mut new_content = String::with_capacity(content.len() + new_text.len());
@@ -681,14 +760,20 @@ impl EntityInputHandler for FeatureEditor {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(tab) = self.active_tab_mut() else { return };
+        let Some(tab) = self.active_tab_mut() else {
+            return;
+        };
         let content = tab.content();
 
         let range = range_utf16
             .as_ref()
             .map(|r| utf16_to_utf8_range(&content, r))
             .or(tab.marked_range.clone())
-            .unwrap_or_else(|| tab.selected_range().unwrap_or(tab.position_to_offset(tab.cursor)..tab.position_to_offset(tab.cursor)));
+            .unwrap_or_else(|| {
+                tab.selected_range().unwrap_or(
+                    tab.position_to_offset(tab.cursor)..tab.position_to_offset(tab.cursor),
+                )
+            });
 
         // Replace text
         let mut new_content = String::with_capacity(content.len() + new_text.len());
@@ -738,9 +823,13 @@ impl EntityInputHandler for FeatureEditor {
         let end_pos = tab.offset_to_position(range.end);
 
         // Use the bounds origin plus layout offsets
-        let start_x = bounds.origin.x + px(layout.content_origin_x + start_pos.column as f32 * layout.char_width);
-        let end_x = bounds.origin.x + px(layout.content_origin_x + end_pos.column as f32 * layout.char_width);
-        let y = bounds.origin.y + px(layout.content_origin_y + (start_pos.line - layout.first_visible_line) as f32 * layout.line_height);
+        let start_x = bounds.origin.x
+            + px(layout.content_origin_x + start_pos.column as f32 * layout.char_width);
+        let end_x = bounds.origin.x
+            + px(layout.content_origin_x + end_pos.column as f32 * layout.char_width);
+        let y = bounds.origin.y
+            + px(layout.content_origin_y
+                + (start_pos.line - layout.first_visible_line) as f32 * layout.line_height);
 
         Some(Bounds::from_corners(
             gpui::point(start_x, y),
@@ -765,10 +854,19 @@ impl EntityInputHandler for FeatureEditor {
 impl Render for FeatureEditor {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         // Collect tab data to avoid borrow issues
-        let tab_data: Vec<_> = self.tabs
+        let tab_data: Vec<_> = self
+            .tabs
             .iter()
             .enumerate()
-            .map(|(idx, tab)| (idx, tab.id, tab.title.clone(), tab.is_dirty, idx == self.active_tab_idx))
+            .map(|(idx, tab)| {
+                (
+                    idx,
+                    tab.id,
+                    tab.title.clone(),
+                    tab.is_dirty,
+                    idx == self.active_tab_idx,
+                )
+            })
             .collect();
 
         let has_tabs = !self.tabs.is_empty();
@@ -834,15 +932,19 @@ impl Render for FeatureEditor {
                             .child(
                                 div()
                                     .text_color(colors::text_muted())
-                                    .child("No features open")
+                                    .child("No features open"),
                             )
-                    })
+                    }),
             )
     }
 }
 
 impl FeatureEditor {
-    fn render_tab_bar(&self, tab_data: Vec<(usize, usize, String, bool, bool)>, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render_tab_bar(
+        &self,
+        tab_data: Vec<(usize, usize, String, bool, bool)>,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
         let can_close = self.tabs.len() > 0;
 
         // Tab bar container - fixed height, full width
@@ -851,7 +953,7 @@ impl FeatureEditor {
             .h(px(32.0))
             .w_full()
             .flex_shrink_0()
-            .overflow_hidden()  // Constrain children to tab bar width
+            .overflow_hidden() // Constrain children to tab bar width
             .flex()
             .flex_row()
             .bg(colors::tab_bar_bg())
@@ -863,8 +965,8 @@ impl FeatureEditor {
                     .id("tab-scroll-wrapper")
                     .flex_1()
                     .flex_shrink()
-                    .flex_basis(px(0.0))  // Start at 0, grow to fill - don't size from content
-                    .min_w(px(0.0))       // Override content-based minimum width
+                    .flex_basis(px(0.0)) // Start at 0, grow to fill - don't size from content
+                    .min_w(px(0.0)) // Override content-based minimum width
                     .h_full()
                     .overflow_hidden()
                     // Inner scroll container: fills wrapper, scrolls content
@@ -877,82 +979,99 @@ impl FeatureEditor {
                             .track_scroll(&self.tab_bar_scroll_handle)
                             .flex()
                             .flex_row()
-                            .children(tab_data.into_iter().map(|(idx, _id, title, is_dirty, is_active)| {
-                        let bg_color = if is_active { colors::tab_active_bg() } else { colors::tab_inactive_bg() };
-                        let text_color = if is_active { colors::text() } else { colors::text_muted() };
+                            .children(tab_data.into_iter().map(
+                                |(idx, _id, title, is_dirty, is_active)| {
+                                    let bg_color = if is_active {
+                                        colors::tab_active_bg()
+                                    } else {
+                                        colors::tab_inactive_bg()
+                                    };
+                                    let text_color = if is_active {
+                                        colors::text()
+                                    } else {
+                                        colors::text_muted()
+                                    };
 
-                        div()
-                            .id(ElementId::Name(format!("tab-{}", idx).into()))
-                            .h_full()
-                            .flex_shrink_0()  // Don't shrink tabs - scroll instead
-                            .px(px(12.0))
-                            .flex()
-                            .flex_row()
-                            .items_center()
-                            .gap(px(6.0))
-                            .bg(bg_color)
-                            .border_r_1()
-                            .border_color(colors::border())
-                            .when(!is_active, |el| el.border_b_1())
-                            .hover(|s| s.bg(colors::hover()))
-                            .cursor(CursorStyle::PointingHand)
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.switch_tab(idx, cx);
-                            }))
-                            // Dirty indicator (blue dot)
-                            .when(is_dirty, |el| {
-                                el.child(
                                     div()
-                                        .w(px(6.0))
-                                        .h(px(6.0))
-                                        .rounded_full()
-                                        .bg(colors::dirty_indicator())
-                                )
-                            })
-                            // Tab title
-                            .child(
-                                div()
-                                    .text_color(text_color)
-                                    .text_sm()
-                                    .text_ellipsis()
-                                    .child(title)
-                            )
-                            // Close button
-                            .when(can_close, |el| {
-                                el.child(
-                                    div()
-                                        .id(ElementId::Name(format!("close-tab-{}", idx).into()))
-                                        .w(px(16.0))
-                                        .h(px(16.0))
+                                        .id(ElementId::Name(format!("tab-{}", idx).into()))
+                                        .h_full()
+                                        .flex_shrink_0() // Don't shrink tabs - scroll instead
+                                        .px(px(12.0))
                                         .flex()
+                                        .flex_row()
                                         .items_center()
-                                        .justify_center()
-                                        .rounded(px(3.0))
-                                        .text_color(colors::text_muted())
-                                        .hover(|s| s.bg(colors::hover()).text_color(colors::text()))
+                                        .gap(px(6.0))
+                                        .bg(bg_color)
+                                        .border_r_1()
+                                        .border_color(colors::border())
+                                        .when(!is_active, |el| el.border_b_1())
+                                        .hover(|s| s.bg(colors::hover()))
+                                        .cursor(CursorStyle::PointingHand)
                                         .on_click(cx.listener(move |this, _, _, cx| {
-                                            // Check dirty state before closing
-                                            if let Some(tab) = this.tabs.get(idx) {
-                                                if tab.is_dirty {
-                                                    cx.emit(Event::DirtyCloseRequested(idx));
-                                                } else {
-                                                    this.force_close_tab(idx, cx);
-                                                }
-                                            }
+                                            this.switch_tab(idx, cx);
                                         }))
-                                        .child("×")
-                                )
-                            })
-                            }))  // closes scroll-container .children()
-                    )  // closes scroll-container div
-            )  // closes wrapper div
+                                        // Dirty indicator (blue dot)
+                                        .when(is_dirty, |el| {
+                                            el.child(
+                                                div()
+                                                    .w(px(6.0))
+                                                    .h(px(6.0))
+                                                    .rounded_full()
+                                                    .bg(colors::dirty_indicator()),
+                                            )
+                                        })
+                                        // Tab title
+                                        .child(
+                                            div()
+                                                .text_color(text_color)
+                                                .text_sm()
+                                                .text_ellipsis()
+                                                .child(title),
+                                        )
+                                        // Close button
+                                        .when(can_close, |el| {
+                                            el.child(
+                                                div()
+                                                    .id(ElementId::Name(
+                                                        format!("close-tab-{}", idx).into(),
+                                                    ))
+                                                    .w(px(16.0))
+                                                    .h(px(16.0))
+                                                    .flex()
+                                                    .items_center()
+                                                    .justify_center()
+                                                    .rounded(px(3.0))
+                                                    .text_color(colors::text_muted())
+                                                    .hover(|s| {
+                                                        s.bg(colors::hover())
+                                                            .text_color(colors::text())
+                                                    })
+                                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                                        // Check dirty state before closing
+                                                        if let Some(tab) = this.tabs.get(idx) {
+                                                            if tab.is_dirty {
+                                                                cx.emit(
+                                                                    Event::DirtyCloseRequested(idx),
+                                                                );
+                                                            } else {
+                                                                this.force_close_tab(idx, cx);
+                                                            }
+                                                        }
+                                                    }))
+                                                    .child("×"),
+                                            )
+                                        })
+                                },
+                            )), // closes scroll-container .children()
+                    ), // closes scroll-container div
+            ) // closes wrapper div
             // Right toolbar area (50px) - will contain buttons in future
             .child(
                 div()
                     .w(px(50.0))
                     .h_full()
                     .border_l_1()
-                    .border_color(colors::border())
+                    .border_color(colors::border()),
             )
     }
 

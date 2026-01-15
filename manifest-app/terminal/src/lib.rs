@@ -17,23 +17,16 @@ use alacritty_terminal::{
     vte::ansi::{CursorShape as AlacCursorShape, CursorStyle},
 };
 use anyhow::{Context as _, Result};
-use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};
 use futures::StreamExt;
-use std::{
-    borrow::Cow,
-    ops::Deref,
-    path::PathBuf,
-    sync::Arc,
-};
-use gpui::{
-    Bounds, Context, EventEmitter, Keystroke, Pixels, Point, Size, Task, px,
-};
+use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};
+use gpui::{Bounds, Context, EventEmitter, Keystroke, Pixels, Point, Size, Task, px};
+use std::{borrow::Cow, ops::Deref, path::PathBuf, sync::Arc};
 
 use crate::mappings::keys::to_esc_str;
 
 // Re-export key types
-pub use alacritty_terminal::term::TermMode as Mode;
 pub use alacritty_terminal::index::Point as TermPoint;
+pub use alacritty_terminal::term::TermMode as Mode;
 
 const DEFAULT_SCROLL_HISTORY_LINES: usize = 10_000;
 
@@ -193,10 +186,7 @@ pub struct TerminalBuilder {
 
 impl TerminalBuilder {
     /// Create a new terminal with a PTY connected to the user's default shell.
-    pub fn new(
-        working_directory: Option<PathBuf>,
-        window_id: u64,
-    ) -> Result<Self> {
+    pub fn new(working_directory: Option<PathBuf>, window_id: u64) -> Result<Self> {
         Self::new_with_shell(working_directory, window_id, None, vec![])
     }
 
@@ -300,7 +290,10 @@ impl Terminal {
     pub fn set_size(&mut self, bounds: TerminalBounds) {
         let mut term = self.term.lock();
         term.resize(bounds);
-        self.pty_tx.0.send(alacritty_terminal::event_loop::Msg::Resize(bounds.into())).ok();
+        self.pty_tx
+            .0
+            .send(alacritty_terminal::event_loop::Msg::Resize(bounds.into()))
+            .ok();
         self.last_content.terminal_bounds = bounds;
     }
 
@@ -319,7 +312,10 @@ impl Terminal {
             // For regular character input
             self.input(key_char.as_bytes().to_vec());
             true
-        } else if keystroke.key.len() == 1 && !keystroke.modifiers.control && !keystroke.modifiers.alt {
+        } else if keystroke.key.len() == 1
+            && !keystroke.modifiers.control
+            && !keystroke.modifiers.alt
+        {
             // Single character key without modifiers
             self.input(keystroke.key.as_bytes().to_vec());
             true
