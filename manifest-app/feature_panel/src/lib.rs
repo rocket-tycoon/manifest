@@ -4,8 +4,8 @@ use std::collections::HashSet;
 
 use gpui::{
     div, px, App, Context, EventEmitter, Focusable, FocusHandle,
-    InteractiveElement, IntoElement, ParentElement, Render, SharedString,
-    StatefulInteractiveElement, Styled, Window, rgba,
+    InteractiveElement, IntoElement, ParentElement, Render, ScrollWheelEvent,
+    SharedString, StatefulInteractiveElement, Styled, Window, rgba,
 };
 use manifest_client::{Feature, FeatureState};
 use uuid::Uuid;
@@ -58,6 +58,15 @@ mod colors {
     pub fn deprecated_gray() -> Rgba {
         Rgba { r: 0.388, g: 0.431, b: 0.502, a: 1.0 } // #636e80 - text.muted
     }
+
+    // Scrollbar colors
+    pub fn scrollbar_track() -> Rgba {
+        Rgba { r: 0.082, g: 0.098, b: 0.118, a: 0.5 } // semi-transparent dark
+    }
+
+    pub fn scrollbar_thumb() -> Rgba {
+        Rgba { r: 0.243, g: 0.275, b: 0.302, a: 0.8 } // element.hover
+    }
 }
 
 /// Events emitted by the FeaturePanel.
@@ -85,6 +94,13 @@ pub enum LoadState {
     Error(String),
 }
 
+/// Row height for features.
+const ROW_HEIGHT: f32 = 22.0;
+/// Scrollbar width.
+const SCROLLBAR_WIDTH: f32 = 10.0;
+/// Minimum thumb size.
+const MIN_THUMB_SIZE: f32 = 25.0;
+
 /// GPUI Entity for displaying a feature tree.
 pub struct FeaturePanel {
     features: Vec<Feature>,
@@ -92,6 +108,10 @@ pub struct FeaturePanel {
     selected_id: Option<Uuid>,
     focus_handle: FocusHandle,
     load_state: LoadState,
+    /// Scroll offset in pixels.
+    scroll_offset: f32,
+    /// Visible height of the content area.
+    visible_height: f32,
 }
 
 impl FeaturePanel {
@@ -103,6 +123,8 @@ impl FeaturePanel {
             selected_id: None,
             focus_handle: cx.focus_handle(),
             load_state: LoadState::Loading,
+            scroll_offset: 0.0,
+            visible_height: 400.0,
         }
     }
 
@@ -134,6 +156,61 @@ impl FeaturePanel {
         self.selected_id = Some(id);
         cx.emit(Event::FeatureSelected(id));
         cx.notify();
+    }
+
+    /// Handle scroll wheel events.
+    fn on_scroll_wheel(&mut self, event: &ScrollWheelEvent, _window: &mut Window, cx: &mut Context<Self>) {
+        let flat_features = self.flatten_features();
+        let content_height = flat_features.len() as f32 * ROW_HEIGHT;
+        let max_scroll = (content_height - self.visible_height).max(0.0);
+
+        // Get scroll delta
+        let delta_y = event.delta.pixel_delta(px(ROW_HEIGHT)).y / px(1.0);
+        let new_offset = (self.scroll_offset - delta_y).clamp(0.0, max_scroll);
+
+        if (new_offset - self.scroll_offset).abs() > 0.01 {
+            self.scroll_offset = new_offset;
+            cx.notify();
+        }
+    }
+
+    /// Render the scrollbar.
+    fn render_scrollbar(&self, content_height: f32) -> impl IntoElement {
+        let viewport_height = self.visible_height;
+
+        if content_height <= viewport_height {
+            return div().w(px(SCROLLBAR_WIDTH)).h_full().into_any_element();
+        }
+
+        let thumb_fraction = (viewport_height / content_height).clamp(0.1, 1.0);
+        let max_scroll = (content_height - viewport_height).max(0.0);
+        let thumb_position = if max_scroll > 0.0 {
+            (self.scroll_offset / max_scroll).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+
+        let track_height = viewport_height;
+        let thumb_height = (track_height * thumb_fraction).max(MIN_THUMB_SIZE);
+        let usable_track = track_height - thumb_height;
+        let thumb_top = usable_track * thumb_position;
+
+        div()
+            .w(px(SCROLLBAR_WIDTH))
+            .h_full()
+            .bg(colors::scrollbar_track())
+            .relative()
+            .child(
+                div()
+                    .absolute()
+                    .top(px(thumb_top))
+                    .left(px(2.0))
+                    .w(px(SCROLLBAR_WIDTH - 4.0))
+                    .h(px(thumb_height))
+                    .rounded(px(3.0))
+                    .bg(colors::scrollbar_thumb())
+            )
+            .into_any_element()
     }
 
     /// Flatten the feature tree for rendering.
@@ -435,9 +512,15 @@ impl Render for FeaturePanel {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let panel_bg = colors::panel_background();
 
+        // Calculate content height for scrollbar
+        let flat_features = self.flatten_features();
+        let content_height = flat_features.len() as f32 * ROW_HEIGHT;
+
         div()
             .id("feature-panel")
             .w(px(250.0))
+            .min_w(px(250.0))
+            .flex_shrink_0()
             .h_full()
             .bg(panel_bg)
             .border_r_1()
@@ -464,41 +547,58 @@ impl Render for FeaturePanel {
                     )
             )
             .child(
-                // Content (scrollable)
+                // Content area with scrollbar
                 div()
-                    .id("feature-list")
+                    .id("feature-list-container")
                     .flex_1()
-                    .overflow_y_scroll()
-                    .child(match &self.load_state {
-                        LoadState::Loading => {
-                            div()
-                                .p(px(12.0))
-                                .text_color(colors::text_muted())
-                                .text_size(px(13.0))
-                                .child("Loading features...")
-                                .into_any_element()
-                        }
-                        LoadState::Error(err) => {
-                            div()
-                                .p(px(12.0))
-                                .text_color(rgba(0xf14c4cff))
-                                .text_size(px(13.0))
-                                .child(format!("Error: {}", err))
-                                .into_any_element()
-                        }
-                        LoadState::Loaded => {
-                            let flat_features = self.flatten_features();
-                            let mut rows = Vec::new();
-                            for f in &flat_features {
-                                rows.push(self.render_feature_row(f, cx));
-                            }
-                            div()
-                                .flex()
-                                .flex_col()
-                                .children(rows)
-                                .into_any_element()
-                        }
-                    })
+                    .w_full()
+                    .flex()
+                    .flex_row()
+                    .overflow_hidden()
+                    .on_scroll_wheel(cx.listener(Self::on_scroll_wheel))
+                    .child(
+                        // Feature list (scrollable content)
+                        div()
+                            .id("feature-list")
+                            .flex_1()
+                            .h_full()
+                            .overflow_hidden()
+                            .child(match &self.load_state {
+                                LoadState::Loading => {
+                                    div()
+                                        .p(px(12.0))
+                                        .text_color(colors::text_muted())
+                                        .text_size(px(13.0))
+                                        .child("Loading features...")
+                                        .into_any_element()
+                                }
+                                LoadState::Error(err) => {
+                                    div()
+                                        .p(px(12.0))
+                                        .text_color(rgba(0xf14c4cff))
+                                        .text_size(px(13.0))
+                                        .child(format!("Error: {}", err))
+                                        .into_any_element()
+                                }
+                                LoadState::Loaded => {
+                                    // Render all features with scroll offset transform
+                                    let mut rows = Vec::new();
+                                    for f in &flat_features {
+                                        rows.push(self.render_feature_row(f, cx));
+                                    }
+
+                                    div()
+                                        .relative()
+                                        .top(px(-self.scroll_offset))
+                                        .flex()
+                                        .flex_col()
+                                        .children(rows)
+                                        .into_any_element()
+                                }
+                            })
+                    )
+                    // Scrollbar
+                    .child(self.render_scrollbar(content_height))
             )
     }
 }
