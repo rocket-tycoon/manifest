@@ -1,0 +1,32 @@
+[workspace]
+members = ["app", "terminal", "terminal_view"]
+resolver = "2"
+
+[workspace.package]
+edition = "2024"
+publish = false
+license = "MIT"
+
+[workspace.dependencies]
+# GPUI from Zed (not published to crates.io)
+gpui = { path = "../../zed/crates/gpui" }
+
+# Terminal emulation
+alacritty_terminal = "0.25.1-rc1"
+
+# Async/concurrency
+futures = "0.3"
+smol = "2"
+parking_lot = "0.12"
+
+# Error handling
+anyhow = "1.0"
+thiserror = "1.0"
+
+# Utilities
+itertools = "0.14"
+libc = "0.2"
+
+# Local crates
+terminal = { path = "terminal" }
+terminal_view = { path = "terminal_view" }
