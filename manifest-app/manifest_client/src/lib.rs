@@ -128,4 +128,28 @@ impl ManifestClient {
             Err(e) => Err(e.into()),
         }
     }
+
+    /// Get a single feature by ID (blocking).
+    pub fn get_feature(&self, id: &Uuid) -> Result<Option<Feature>, ClientError> {
+        let url = format!("{}/features/{}", self.base_url, id);
+        match ureq::get(&url).call() {
+            Ok(response) => {
+                let feature: Feature = response.into_json()?;
+                Ok(Some(feature))
+            }
+            Err(ureq::Error::Status(404, _)) => Ok(None),
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    /// Update a feature's details (blocking).
+    /// Only updates the fields provided in the input.
+    pub fn update_feature(&self, id: &Uuid, details: Option<String>) -> Result<Feature, ClientError> {
+        let url = format!("{}/features/{}", self.base_url, id);
+        let body = serde_json::json!({ "details": details });
+        let response: Feature = ureq::put(&url)
+            .send_json(&body)?
+            .into_json()?;
+        Ok(response)
+    }
 }
