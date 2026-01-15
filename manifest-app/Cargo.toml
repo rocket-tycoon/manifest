@@ -1,5 +1,5 @@
 [workspace]
-members = ["app", "terminal", "terminal_view", "manifest_client", "feature_panel"]
+members = ["app", "terminal", "terminal_view", "manifest_client", "feature_panel", "feature_editor"]
 resolver = "2"
 
 [workspace.package]
@@ -26,6 +26,7 @@ thiserror = "1.0"
 # Utilities
 itertools = "0.14"
 libc = "0.2"
+unicode-segmentation = "1.10"
 
 # HTTP client
 ureq = { version = "2.9", features = ["json"] }
@@ -38,3 +39,4 @@ terminal = { path = "terminal" }
 terminal_view = { path = "terminal_view" }
 manifest_client = { path = "manifest_client" }
 feature_panel = { path = "feature_panel" }
+feature_editor = { path = "feature_editor" }
