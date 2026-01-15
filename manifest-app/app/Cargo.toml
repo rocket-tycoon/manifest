@@ -15,5 +15,7 @@ terminal.workspace = true
 terminal_view.workspace = true
 manifest_client.workspace = true
 feature_panel.workspace = true
+feature_editor.workspace = true
 anyhow.workspace = true
 uuid.workspace = true
+parking_lot.workspace = true
