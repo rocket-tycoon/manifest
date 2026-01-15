@@ -1,91 +1,93 @@
 //! Color conversion utilities for terminal rendering.
+//!
+//! Colors from the "Pigs in Space" Zed theme.
 
 use gpui::{Hsla, Rgba, rgba};
 
-/// Terminal color palette - hardcoded for MVP.
+/// Terminal color palette - Pigs in Space theme.
 pub struct TerminalColors;
 
 impl TerminalColors {
     pub fn background() -> Rgba {
-        rgba(0x1e1e1eff)
+        rgba(0x21262cff) // terminal.background
     }
 
     pub fn foreground() -> Rgba {
-        rgba(0xd4d4d4ff)
+        rgba(0xb6c4d2ff) // terminal.foreground
     }
 
     pub fn cursor() -> Rgba {
-        rgba(0xffffffff)
+        rgba(0x4c9c9dff) // teal cursor
     }
 
     pub fn selection() -> Rgba {
-        rgba(0x264f7880)
+        rgba(0x4c9c9d30) // teal selection with transparency
     }
 
     // Standard ANSI colors (0-7)
     pub fn ansi_black() -> Rgba {
-        rgba(0x000000ff)
+        rgba(0x2d333aff)
     }
 
     pub fn ansi_red() -> Rgba {
-        rgba(0xcd3131ff)
+        rgba(0xfb8ea0ff)
     }
 
     pub fn ansi_green() -> Rgba {
-        rgba(0x0dbc79ff)
+        rgba(0xc3e88dff)
     }
 
     pub fn ansi_yellow() -> Rgba {
-        rgba(0xe5e510ff)
+        rgba(0xffcb6bff)
     }
 
     pub fn ansi_blue() -> Rgba {
-        rgba(0x2472c8ff)
+        rgba(0x82aaffff)
     }
 
     pub fn ansi_magenta() -> Rgba {
-        rgba(0xbc3fbcff)
+        rgba(0xc792eaff)
     }
 
     pub fn ansi_cyan() -> Rgba {
-        rgba(0x11a8cdff)
+        rgba(0x89ddffff)
     }
 
     pub fn ansi_white() -> Rgba {
-        rgba(0xe5e5e5ff)
+        rgba(0xffffffff)
     }
 
     // Bright ANSI colors (8-15)
     pub fn ansi_bright_black() -> Rgba {
-        rgba(0x666666ff)
+        rgba(0x636e80ff)
     }
 
     pub fn ansi_bright_red() -> Rgba {
-        rgba(0xf14c4cff)
+        rgba(0xff5370ff)
     }
 
     pub fn ansi_bright_green() -> Rgba {
-        rgba(0x23d18bff)
+        rgba(0xc3e88dff)
     }
 
     pub fn ansi_bright_yellow() -> Rgba {
-        rgba(0xf5f543ff)
+        rgba(0xffcb6bff)
     }
 
     pub fn ansi_bright_blue() -> Rgba {
-        rgba(0x3b8eeaff)
+        rgba(0x82aaffff)
     }
 
     pub fn ansi_bright_magenta() -> Rgba {
-        rgba(0xd670d6ff)
+        rgba(0xc792eaff)
     }
 
     pub fn ansi_bright_cyan() -> Rgba {
-        rgba(0x29b8dbff)
+        rgba(0x89ddffff)
     }
 
     pub fn ansi_bright_white() -> Rgba {
-        rgba(0xe5e5e5ff)
+        rgba(0xffffffff)
     }
 }
 
