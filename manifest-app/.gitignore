@@ -1,0 +1,12 @@
+# Build artifacts
+/target/
+manifest-core/target/
+manifest-app/target/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# OS
+.DS_Store
