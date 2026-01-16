@@ -1,8 +1,10 @@
 //! Terminal emulation layer wrapping alacritty_terminal for GPUI applications.
 
 pub mod mappings;
+pub mod terminal_hyperlinks;
 
 pub use alacritty_terminal;
+use alacritty_terminal::term::search::Match;
 
 use alacritty_terminal::{
     Term,
@@ -19,10 +21,13 @@ use alacritty_terminal::{
 use anyhow::{Context as _, Result};
 use futures::StreamExt;
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};
-use gpui::{Bounds, Context, EventEmitter, Keystroke, Pixels, Point, Size, Task, px};
+use gpui::{
+    Bounds, Context, EventEmitter, Keystroke, Modifiers, MouseButton, Pixels, Point, Size, Task, px,
+};
 use std::{borrow::Cow, ops::Deref, path::PathBuf, sync::Arc};
 
 use crate::mappings::keys::to_esc_str;
+use crate::terminal_hyperlinks::{UrlSearch, find_url_at_point};
 
 // Re-export key types
 pub use alacritty_terminal::index::Point as TermPoint;
@@ -37,6 +42,8 @@ pub enum Event {
     CloseTerminal,
     Bell,
     Wakeup,
+    /// Open a URL via Cmd+click
+    OpenUrl(String),
 }
 
 /// Listener that bridges alacritty events to our async channel.
@@ -158,6 +165,8 @@ pub struct TerminalContent {
     pub cursor: RenderableCursor,
     pub cursor_char: char,
     pub terminal_bounds: TerminalBounds,
+    /// Range of cells that are part of a hovered hyperlink (for styling).
+    pub hovered_hyperlink: Option<Match>,
 }
 
 impl Default for TerminalContent {
@@ -173,6 +182,7 @@ impl Default for TerminalContent {
             },
             cursor_char: ' ',
             terminal_bounds: TerminalBounds::default(),
+            hovered_hyperlink: None,
         }
     }
 }
@@ -265,6 +275,9 @@ impl TerminalBuilder {
             pty_tx,
             last_content: TerminalContent::default(),
             event_loop_task,
+            url_search: UrlSearch::new(),
+            mouse_down_url: None,
+            hovered_hyperlink: None,
         }
     }
 }
@@ -276,6 +289,12 @@ pub struct Terminal {
     pub last_content: TerminalContent,
     #[allow(dead_code)]
     event_loop_task: Task<Result<(), anyhow::Error>>,
+    /// URL search state for hyperlink detection.
+    url_search: UrlSearch,
+    /// URL that was under the cursor on mouse down (for Cmd+click).
+    mouse_down_url: Option<String>,
+    /// Currently hovered hyperlink range (when Cmd is held).
+    hovered_hyperlink: Option<Match>,
 }
 
 impl EventEmitter<Event> for Terminal {}
@@ -353,6 +372,127 @@ impl Terminal {
         }
     }
 
+    /// Handle mouse down event. Returns true if the event was consumed (e.g., for hyperlink click).
+    pub fn mouse_down(
+        &mut self,
+        button: MouseButton,
+        position: Point<Pixels>,
+        modifiers: Modifiers,
+    ) -> bool {
+        // Only handle Cmd+left click for hyperlinks
+        if button != MouseButton::Left || !modifiers.platform {
+            self.hovered_hyperlink = None;
+            return false;
+        }
+
+        // Convert pixel position to grid point
+        if let Some(point) = self.pixel_to_grid_point(position) {
+            let term = self.term.lock();
+            if let Some((url, match_range)) = find_url_at_point(&term, point, &mut self.url_search)
+            {
+                self.mouse_down_url = Some(url);
+                self.hovered_hyperlink = Some(match_range);
+                return true;
+            }
+        }
+        self.mouse_down_url = None;
+        self.hovered_hyperlink = None;
+        false
+    }
+
+    /// Handle mouse up event. Returns true if a URL should be opened.
+    pub fn mouse_up(
+        &mut self,
+        button: MouseButton,
+        position: Point<Pixels>,
+        modifiers: Modifiers,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        // Only handle left click release
+        if button != MouseButton::Left {
+            return false;
+        }
+
+        // Check if we had a URL on mouse down
+        let mouse_down_url = self.mouse_down_url.take();
+        if let Some(down_url) = mouse_down_url {
+            // Verify we're still over the same URL (or any URL with Cmd held)
+            if modifiers.platform {
+                if let Some(point) = self.pixel_to_grid_point(position) {
+                    let term = self.term.lock();
+                    if let Some((up_url, _)) = find_url_at_point(&term, point, &mut self.url_search)
+                    {
+                        if up_url == down_url {
+                            // Emit event to open the URL
+                            drop(term);
+                            cx.emit(Event::OpenUrl(down_url));
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        false
+    }
+
+    /// Update hover state when mouse moves with Cmd held.
+    pub fn mouse_move(&mut self, position: Point<Pixels>, modifiers: Modifiers) {
+        if !modifiers.platform {
+            if self.hovered_hyperlink.is_some() {
+                self.hovered_hyperlink = None;
+            }
+            return;
+        }
+
+        // Convert pixel position to grid point
+        if let Some(point) = self.pixel_to_grid_point(position) {
+            let term = self.term.lock();
+            if let Some((_url, match_range)) = find_url_at_point(&term, point, &mut self.url_search)
+            {
+                self.hovered_hyperlink = Some(match_range);
+                return;
+            }
+        }
+        self.hovered_hyperlink = None;
+    }
+
+    /// Get the currently hovered hyperlink range for rendering.
+    pub fn hovered_hyperlink(&self) -> Option<&Match> {
+        self.hovered_hyperlink.as_ref()
+    }
+
+    /// Clear the hovered hyperlink state.
+    pub fn clear_hovered_hyperlink(&mut self) {
+        self.hovered_hyperlink = None;
+    }
+
+    /// Convert a pixel position (relative to terminal bounds origin) to a grid point.
+    fn pixel_to_grid_point(&self, position: Point<Pixels>) -> Option<AlacPoint> {
+        let bounds = &self.last_content.terminal_bounds;
+
+        // Check if position is within bounds
+        if position.x < Pixels::ZERO || position.y < Pixels::ZERO {
+            return None;
+        }
+
+        let col = (position.x / bounds.cell_width).floor() as i32;
+        let line = (position.y / bounds.line_height).floor() as i32;
+
+        // Clamp to valid range
+        let num_cols = bounds.num_columns() as i32;
+        let num_lines = bounds.num_lines() as i32;
+
+        if col < 0 || col >= num_cols || line < 0 || line >= num_lines {
+            return None;
+        }
+
+        // Account for display offset (scrollback)
+        let display_offset = self.last_content.display_offset as i32;
+        let adjusted_line = line - display_offset;
+
+        Some(AlacPoint::new(Line(adjusted_line), Column(col as usize)))
+    }
+
     /// Sync the content snapshot from the terminal grid.
     fn sync_content(&mut self) {
         let term = self.term.lock();
@@ -375,6 +515,7 @@ impl Terminal {
             cursor: content.cursor,
             cursor_char: term.grid()[content.cursor.point].c,
             terminal_bounds: self.last_content.terminal_bounds,
+            hovered_hyperlink: self.hovered_hyperlink.clone(),
         };
     }
 }
