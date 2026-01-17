@@ -1,7 +1,9 @@
 //! File-based active feature context sharing.
 //!
-//! Writes the currently selected feature to `~/.manifest/active_context.json`
+//! Writes the currently selected feature to `<project_dir>/.manifest/active_context.json`
 //! so the MCP server can read it and provide context to AI agents.
+//!
+//! Context is per-project, allowing multiple projects to have different active features.
 
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -14,52 +16,50 @@ use uuid::Uuid;
 pub struct ActiveContext {
     pub feature_id: Uuid,
     pub title: String,
+    /// Feature details (specification, user stories, technical notes).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub details: Option<String>,
     pub updated_at: String,
 }
 
-/// Get the path to the active context file.
-fn context_file_path() -> Option<PathBuf> {
-    dirs::home_dir().map(|home| home.join(".manifest").join("active_context.json"))
+/// Get the path to the active context file for a project directory.
+fn context_file_path(project_dir: &Path) -> PathBuf {
+    project_dir.join(".manifest").join("active_context.json")
 }
 
-/// Write the active feature context to disk.
+/// Write the active feature context to disk in the project directory.
 ///
 /// Uses atomic write (write to temp file, then rename) to prevent corruption.
-pub fn write_context(feature_id: Uuid, title: &str) -> std::io::Result<()> {
-    let path = context_file_path().ok_or_else(|| {
-        std::io::Error::new(
-            std::io::ErrorKind::NotFound,
-            "Could not determine home directory",
-        )
-    })?;
-    write_context_to_path(&path, feature_id, title)
+pub fn write_context(
+    project_dir: &Path,
+    feature_id: Uuid,
+    title: &str,
+    details: Option<&str>,
+) -> std::io::Result<()> {
+    let path = context_file_path(project_dir);
+    write_context_to_path(&path, feature_id, title, details)
 }
 
 /// Clear the active feature context (no feature selected).
-pub fn clear_context() -> std::io::Result<()> {
-    let path = context_file_path().ok_or_else(|| {
-        std::io::Error::new(
-            std::io::ErrorKind::NotFound,
-            "Could not determine home directory",
-        )
-    })?;
+pub fn clear_context(project_dir: &Path) -> std::io::Result<()> {
+    let path = context_file_path(project_dir);
     clear_context_at_path(&path)
 }
 
-/// Read the active feature context from disk.
-pub fn read_context() -> std::io::Result<Option<ActiveContext>> {
-    let path = context_file_path().ok_or_else(|| {
-        std::io::Error::new(
-            std::io::ErrorKind::NotFound,
-            "Could not determine home directory",
-        )
-    })?;
+/// Read the active feature context from a project directory.
+pub fn read_context(project_dir: &Path) -> std::io::Result<Option<ActiveContext>> {
+    let path = context_file_path(project_dir);
     read_context_from_path(&path)
 }
 
 // --- Internal functions that accept a path (for testing) ---
 
-fn write_context_to_path(path: &Path, feature_id: Uuid, title: &str) -> std::io::Result<()> {
+fn write_context_to_path(
+    path: &Path,
+    feature_id: Uuid,
+    title: &str,
+    details: Option<&str>,
+) -> std::io::Result<()> {
     // Ensure parent directory exists
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
@@ -68,6 +68,7 @@ fn write_context_to_path(path: &Path, feature_id: Uuid, title: &str) -> std::io:
     let context = ActiveContext {
         feature_id,
         title: title.to_string(),
+        details: details.map(|s| s.to_string()),
         updated_at: chrono::Utc::now().to_rfc3339(),
     };
 
@@ -117,12 +118,14 @@ mod tests {
         let path = test_path(&dir);
         let feature_id = Uuid::new_v4();
         let title = "Test Feature";
+        let details = "Feature details with user stories.";
 
-        write_context_to_path(&path, feature_id, title).unwrap();
+        write_context_to_path(&path, feature_id, title, Some(details)).unwrap();
 
         let context = read_context_from_path(&path).unwrap().unwrap();
         assert_eq!(context.feature_id, feature_id);
         assert_eq!(context.title, title);
+        assert_eq!(context.details.as_deref(), Some(details));
         assert!(!context.updated_at.is_empty());
     }
 
@@ -141,7 +144,7 @@ mod tests {
         let path = test_path(&dir);
         let feature_id = Uuid::new_v4();
 
-        write_context_to_path(&path, feature_id, "Test").unwrap();
+        write_context_to_path(&path, feature_id, "Test", None).unwrap();
         assert!(path.exists());
 
         clear_context_at_path(&path).unwrap();
@@ -163,7 +166,7 @@ mod tests {
         let path = dir.path().join("nested").join("dir").join("context.json");
         let feature_id = Uuid::new_v4();
 
-        write_context_to_path(&path, feature_id, "Nested Test").unwrap();
+        write_context_to_path(&path, feature_id, "Nested Test", None).unwrap();
 
         assert!(path.exists());
         let context = read_context_from_path(&path).unwrap().unwrap();
@@ -177,12 +180,13 @@ mod tests {
         let id1 = Uuid::new_v4();
         let id2 = Uuid::new_v4();
 
-        write_context_to_path(&path, id1, "First").unwrap();
-        write_context_to_path(&path, id2, "Second").unwrap();
+        write_context_to_path(&path, id1, "First", Some("First details")).unwrap();
+        write_context_to_path(&path, id2, "Second", Some("Second details")).unwrap();
 
         let context = read_context_from_path(&path).unwrap().unwrap();
         assert_eq!(context.feature_id, id2);
         assert_eq!(context.title, "Second");
+        assert_eq!(context.details.as_deref(), Some("Second details"));
     }
 
     #[test]
@@ -191,13 +195,14 @@ mod tests {
         let path = test_path(&dir);
         let feature_id = Uuid::new_v4();
 
-        write_context_to_path(&path, feature_id, "JSON Test").unwrap();
+        write_context_to_path(&path, feature_id, "JSON Test", Some("Test details")).unwrap();
 
         let json = fs::read_to_string(&path).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
 
         assert!(parsed.get("feature_id").is_some());
         assert!(parsed.get("title").is_some());
+        assert!(parsed.get("details").is_some());
         assert!(parsed.get("updated_at").is_some());
     }
 
@@ -207,7 +212,7 @@ mod tests {
         let path = test_path(&dir);
         let feature_id = Uuid::new_v4();
 
-        write_context_to_path(&path, feature_id, "Timestamp Test").unwrap();
+        write_context_to_path(&path, feature_id, "Timestamp Test", None).unwrap();
 
         let context = read_context_from_path(&path).unwrap().unwrap();
         // RFC3339 parsing should succeed
@@ -222,7 +227,7 @@ mod tests {
         let feature_id = Uuid::new_v4();
         let title = "Feature with \"quotes\" and 'apostrophes' and\nnewlines";
 
-        write_context_to_path(&path, feature_id, title).unwrap();
+        write_context_to_path(&path, feature_id, title, None).unwrap();
 
         let context = read_context_from_path(&path).unwrap().unwrap();
         assert_eq!(context.title, title);
@@ -235,10 +240,26 @@ mod tests {
         let feature_id = Uuid::new_v4();
         let title = "Feature \u{1F680} Rocket \u{2728} Sparkles";
 
-        write_context_to_path(&path, feature_id, title).unwrap();
+        write_context_to_path(&path, feature_id, title, None).unwrap();
 
         let context = read_context_from_path(&path).unwrap().unwrap();
         assert_eq!(context.title, title);
+    }
+
+    #[test]
+    fn write_without_details_omits_field() {
+        let dir = TempDir::new().unwrap();
+        let path = test_path(&dir);
+        let feature_id = Uuid::new_v4();
+
+        write_context_to_path(&path, feature_id, "No Details", None).unwrap();
+
+        let context = read_context_from_path(&path).unwrap().unwrap();
+        assert!(context.details.is_none());
+
+        // Verify the JSON doesn't contain the details field
+        let json = fs::read_to_string(&path).unwrap();
+        assert!(!json.contains("details"));
     }
 
     #[test]

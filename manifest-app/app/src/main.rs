@@ -75,7 +75,11 @@ fn load_embedded_fonts(cx: &App) {
         Cow::Borrowed(include_bytes!("../fonts/IBMPlexSans-Regular.ttf")),
         Cow::Borrowed(include_bytes!("../fonts/IBMPlexSans-Medium.ttf")),
         Cow::Borrowed(include_bytes!("../fonts/IBMPlexSans-SemiBold.ttf")),
-        // Bitstream Vera Sans Mono (terminal/editor font)
+        // IBM Plex Mono (editor font)
+        Cow::Borrowed(include_bytes!("../fonts/IBMPlexMono-Regular.ttf")),
+        Cow::Borrowed(include_bytes!("../fonts/IBMPlexMono-Medium.ttf")),
+        Cow::Borrowed(include_bytes!("../fonts/IBMPlexMono-SemiBold.ttf")),
+        // Bitstream Vera Sans Mono (terminal font)
         Cow::Borrowed(include_bytes!("../fonts/VeraMono.ttf")),
         Cow::Borrowed(include_bytes!("../fonts/VeraMoBd.ttf")),
         Cow::Borrowed(include_bytes!("../fonts/VeraMoIt.ttf")),
@@ -282,10 +286,12 @@ fn set_menus(cx: &mut App) {
     ]);
 }
 
-/// Result of fetching features: features and the directory name to display.
+/// Result of fetching features: features, the directory name to display, and the project path.
 struct FetchResult {
     features: Vec<manifest_client::Feature>,
     directory_name: Option<String>,
+    /// The project directory path (for writing per-project context).
+    project_path: Option<PathBuf>,
 }
 
 /// Root application view with feature panel, editor, and terminal.
@@ -310,31 +316,21 @@ impl ManifestApp {
         let terminal_view = cx.new(|cx| TerminalView::new(window, cx));
 
         // Subscribe to feature panel selection events
-        let feature_editor_clone = feature_editor.clone();
-        cx.subscribe(
-            &feature_panel,
-            move |_this, _panel, event: &PanelEvent, cx| {
-                let PanelEvent::FeatureSelected(feature_id) = event;
-                Self::on_feature_selected(*feature_id, &feature_editor_clone, cx);
-            },
-        )
+        cx.subscribe(&feature_panel, |this, _panel, event: &PanelEvent, cx| {
+            let PanelEvent::FeatureSelected(feature_id) = event;
+            this.on_feature_selected(*feature_id, cx);
+        })
         .detach();
 
-        // Subscribe to editor events for dirty close handling
+        // Subscribe to editor events
         cx.subscribe(
             &feature_editor,
-            |_this, _editor, event: &EditorEvent, _cx| {
-                match event {
-                    EditorEvent::FeatureSaved(id) => {
-                        eprintln!("Feature {} saved", id);
-                    }
-                    EditorEvent::SaveFailed(id, err) => {
-                        eprintln!("Failed to save feature {}: {}", id, err);
-                    }
-                    EditorEvent::DirtyCloseRequested(idx) => {
-                        // TODO: Show prompt dialog
-                        eprintln!("Dirty close requested for tab {}", idx);
-                    }
+            |_this, _editor, event: &EditorEvent, _cx| match event {
+                EditorEvent::FeatureSaved(id) => {
+                    eprintln!("Feature {} saved", id);
+                }
+                EditorEvent::SaveFailed(id, err) => {
+                    eprintln!("Failed to save feature {}: {}", id, err);
                 }
             },
         )
@@ -347,7 +343,7 @@ impl ManifestApp {
         // Fetch features in background
         let feature_panel_clone = feature_panel.clone();
         let background_executor = cx.background_executor().clone();
-        cx.spawn(async move |_this, cx| {
+        cx.spawn(async move |this, cx| {
             let result = background_executor
                 .spawn(async move { Self::fetch_features() })
                 .await;
@@ -356,8 +352,15 @@ impl ManifestApp {
                 Ok(FetchResult {
                     features,
                     directory_name,
+                    project_path,
                 }) => {
                     eprintln!("Loaded {} features", features.len());
+                    // Save project path for context file writing
+                    if let Some(this) = this.upgrade() {
+                        cx.update_entity(&this, |app, _cx| {
+                            app.current_project_path = project_path;
+                        });
+                    }
                     cx.update_entity(&feature_panel_clone, |panel, cx| {
                         panel.set_features(features, directory_name, cx);
                     });
@@ -382,11 +385,12 @@ impl ManifestApp {
     }
 
     /// Handle feature selection from the panel.
-    fn on_feature_selected(feature_id: Uuid, editor: &Entity<FeatureEditor>, cx: &mut App) {
-        let editor_clone = editor.clone();
+    fn on_feature_selected(&self, feature_id: Uuid, cx: &mut Context<Self>) {
+        let editor_clone = self.feature_editor.clone();
+        let project_path = self.current_project_path.clone();
         let background_executor = cx.background_executor().clone();
 
-        cx.spawn(async move |cx| {
+        cx.spawn(async move |_this, cx| {
             let result = background_executor
                 .spawn(async move {
                     let db = Database::open_default()?;
@@ -396,9 +400,16 @@ impl ManifestApp {
 
             match result {
                 Ok(Some(feature)) => {
-                    // Write to context file for MCP server
-                    if let Err(e) = context_file::write_context(feature.id, &feature.title) {
-                        eprintln!("Failed to write context file: {}", e);
+                    // Write to context file for MCP server (per-project)
+                    if let Some(ref path) = project_path {
+                        if let Err(e) = context_file::write_context(
+                            path,
+                            feature.id,
+                            &feature.title,
+                            feature.details.as_deref(),
+                        ) {
+                            eprintln!("Failed to write context file: {}", e);
+                        }
                     }
 
                     // Update global active feature context
@@ -462,6 +473,7 @@ impl ManifestApp {
                     return Ok(FetchResult {
                         features: converted,
                         directory_name,
+                        project_path: Some(PathBuf::from(path)),
                     });
                 }
                 Err(e) => {
@@ -508,6 +520,7 @@ impl ManifestApp {
                             return Ok(FetchResult {
                                 features: converted,
                                 directory_name,
+                                project_path: Some(cwd),
                             });
                         }
                         Err(e) => {
@@ -538,6 +551,7 @@ impl ManifestApp {
                     return Ok(FetchResult {
                         features: converted,
                         directory_name: None, // No directory context in fallback
+                        project_path: None,   // No project path in fallback
                     });
                 }
                 Ok(_) => continue,
@@ -553,12 +567,12 @@ impl ManifestApp {
     /// Open a project from a directory path and load its features.
     fn open_project(&mut self, path: PathBuf, cx: &mut Context<Self>) {
         let path_str = path.to_string_lossy().to_string();
-        self.current_project_path = Some(path.clone());
+        self.current_project_path = Some(path);
 
         let feature_panel = self.feature_panel.clone();
         let background_executor = cx.background_executor().clone();
 
-        cx.spawn(async move |_this, cx| {
+        cx.spawn(async move |this, cx| {
             let result = background_executor
                 .spawn(async move { Self::fetch_features_for_path(&path_str) })
                 .await;
@@ -567,8 +581,15 @@ impl ManifestApp {
                 Ok(FetchResult {
                     features,
                     directory_name,
+                    project_path,
                 }) => {
                     eprintln!("Loaded {} features", features.len());
+                    // Update project path in app state
+                    if let Some(this) = this.upgrade() {
+                        cx.update_entity(&this, |app, _cx| {
+                            app.current_project_path = project_path;
+                        });
+                    }
                     cx.update_entity(&feature_panel, |panel, cx| {
                         panel.set_features(features, directory_name, cx);
                     });
