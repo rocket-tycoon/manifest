@@ -1,33 +1,31 @@
 use gpui::{
-    App, Context, FocusHandle, Focusable, KeyBinding, Window, actions, div, prelude::*, px,
+    actions, div, prelude::*, px, App, Context, Entity, FocusHandle, Focusable, KeyBinding,
+    SharedString, Window,
 };
 use gpui_component::{
-    ActiveTheme,
-    input::{Input, InputEvent},
-    tab::{Tab, TabBar},
+    button::{Button, ButtonRounded, ButtonVariant, ButtonVariants},
+    input::{Input, InputEvent, InputState},
+    text::markdown,
+    ActiveTheme, Sizable,
 };
-use manifest_client::ManifestClient;
+use manifest_client::{ManifestClient, Session, SessionStatus, Task, TaskStatus};
 use uuid::Uuid;
 
-use crate::editor_tab::FeatureEditorTab;
-
-// Define editor actions (only tab/file operations - Input handles text editing)
-actions!(feature_editor, [Save, CloseTab, NextTab, PrevTab]);
+// Define editor actions
+actions!(feature_editor, [Save, Edit, Cancel]);
 
 /// Events emitted by the FeatureEditor.
 #[derive(Clone, Debug)]
 pub enum Event {
-    /// Tab was saved successfully.
+    /// Feature was saved successfully.
     FeatureSaved(Uuid),
     /// Save failed with error message.
     SaveFailed(Uuid, String),
-    /// Request to close a dirty tab (needs confirmation).
-    DirtyCloseRequested(usize),
 }
 
 /// Colors for the editor (Pigs in Space theme).
 mod colors {
-    use gpui::Hsla;
+    use gpui::{Hsla, Rgba};
 
     pub fn background() -> Hsla {
         Hsla {
@@ -38,8 +36,87 @@ mod colors {
         }
     }
 
+    pub fn panel_background() -> Hsla {
+        Hsla {
+            h: 212.0 / 360.0,
+            s: 0.15,
+            l: 0.12,
+            a: 1.0,
+        }
+    }
+
+    /// Header background - matches feature panel header (#15191e)
+    pub fn header_background() -> Rgba {
+        Rgba {
+            r: 0.082,
+            g: 0.098,
+            b: 0.118,
+            a: 1.0,
+        }
+    }
+
+    /// Header border color - matches feature panel header (#2d333a)
+    pub fn header_border() -> Rgba {
+        Rgba {
+            r: 0.176,
+            g: 0.200,
+            b: 0.227,
+            a: 1.0,
+        }
+    }
+
+    /// Header text color - matches feature panel header (#c2d6ea)
+    pub fn header_text() -> Rgba {
+        Rgba {
+            r: 0.761,
+            g: 0.839,
+            b: 0.918,
+            a: 1.0,
+        }
+    }
+
+    pub fn task_pending() -> Hsla {
+        // Gray for pending
+        Hsla {
+            h: 0.0,
+            s: 0.0,
+            l: 0.5,
+            a: 1.0,
+        }
+    }
+
+    pub fn task_running() -> Hsla {
+        // Blue for running
+        Hsla {
+            h: 210.0 / 360.0,
+            s: 0.8,
+            l: 0.6,
+            a: 1.0,
+        }
+    }
+
+    pub fn task_completed() -> Hsla {
+        // Green for completed
+        Hsla {
+            h: 120.0 / 360.0,
+            s: 0.5,
+            l: 0.5,
+            a: 1.0,
+        }
+    }
+
+    pub fn task_failed() -> Hsla {
+        // Red for failed
+        Hsla {
+            h: 0.0 / 360.0,
+            s: 0.7,
+            l: 0.5,
+            a: 1.0,
+        }
+    }
+
     pub fn dirty_indicator() -> Hsla {
-        // Yellow/amber for dirty state (matches Pigs in Space warning color)
+        // Yellow/amber for dirty state
         Hsla {
             h: 45.0 / 360.0,
             s: 0.95,
@@ -57,14 +134,28 @@ struct PendingFeature {
     details: Option<String>,
 }
 
-/// Multi-tab feature editor view.
+/// Single-feature editor view with title, details, and tasks panel.
 pub struct FeatureEditor {
-    /// Open tabs.
-    tabs: Vec<FeatureEditorTab>,
-    /// Currently active tab index.
-    active_tab_idx: usize,
-    /// Counter for generating unique tab IDs.
-    next_tab_id: usize,
+    /// Currently loaded feature ID.
+    feature_id: Option<Uuid>,
+    /// Title input state.
+    title_input: Option<Entity<InputState>>,
+    /// Details input state.
+    details_input: Option<Entity<InputState>>,
+    /// Original title for dirty detection.
+    original_title: SharedString,
+    /// Original details for dirty detection.
+    original_details: SharedString,
+    /// Is title dirty?
+    title_dirty: bool,
+    /// Is details dirty?
+    details_dirty: bool,
+    /// Whether we're in edit mode.
+    is_editing: bool,
+    /// Tasks for the current feature's active session.
+    tasks: Vec<Task>,
+    /// Active session (if any).
+    active_session: Option<Session>,
     /// Focus handle for keyboard input.
     focus_handle: FocusHandle,
     /// API client for saving.
@@ -77,9 +168,16 @@ impl FeatureEditor {
     /// Create a new empty editor.
     pub fn new(cx: &mut Context<Self>) -> Self {
         Self {
-            tabs: Vec::new(),
-            active_tab_idx: 0,
-            next_tab_id: 0,
+            feature_id: None,
+            title_input: None,
+            details_input: None,
+            original_title: "".into(),
+            original_details: "".into(),
+            title_dirty: false,
+            details_dirty: false,
+            is_editing: false,
+            tasks: Vec::new(),
+            active_session: None,
             focus_handle: cx.focus_handle(),
             client: ManifestClient::localhost(),
             pending_feature: None,
@@ -87,7 +185,6 @@ impl FeatureEditor {
     }
 
     /// Queue a feature to be opened (can be called from async context without window).
-    /// The feature will be opened in the next render when window is available.
     pub fn load_feature(
         &mut self,
         feature_id: Uuid,
@@ -95,12 +192,6 @@ impl FeatureEditor {
         details: Option<String>,
         cx: &mut Context<Self>,
     ) {
-        // Check if already open - just switch to it
-        if let Some(idx) = self.tabs.iter().position(|t| t.feature_id == feature_id) {
-            self.switch_tab(idx, cx);
-            return;
-        }
-
         // Queue for opening in render (when we have window access)
         self.pending_feature = Some(PendingFeature {
             id: feature_id,
@@ -110,8 +201,8 @@ impl FeatureEditor {
         cx.notify();
     }
 
-    /// Open a feature in a new tab (or focus existing tab if already open).
-    pub fn open_feature(
+    /// Open a feature for editing.
+    fn open_feature(
         &mut self,
         feature_id: Uuid,
         title: String,
@@ -119,36 +210,33 @@ impl FeatureEditor {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        // Check if already open
-        if let Some(idx) = self.tabs.iter().position(|t| t.feature_id == feature_id) {
-            self.switch_tab(idx, cx);
-            return;
-        }
+        let title_str = title.clone();
+        let details_str = details.clone().unwrap_or_default();
 
-        // Check if we should replace the current tab (if it exists and is not dirty)
-        let replace_current = if let Some(current_tab) = self.active_tab() {
-            !current_tab.is_dirty
-        } else {
-            false
-        };
+        // Create title input (single line)
+        let title_input = cx.new(|cx| {
+            InputState::new(window, cx)
+                .multi_line(false)
+                .default_value(title_str.clone())
+        });
 
-        // Create new tab
-        let tab = FeatureEditorTab::new(self.next_tab_id, feature_id, title, details, window, cx);
-        self.next_tab_id += 1;
+        // Create details input (multi-line)
+        let details_input = cx.new(|cx| {
+            InputState::new(window, cx)
+                .multi_line(true)
+                .default_value(details_str.clone())
+        });
 
-        // Subscribe to input changes to track dirty state
-        // We capture the input entity to find the correct tab even if indices change
-        let input_entity = tab.input_state.clone();
+        // Subscribe to title input changes
+        let title_entity = title_input.clone();
         cx.subscribe_in(
-            &tab.input_state,
+            &title_input,
             window,
             move |this, _state, event: &InputEvent, _window, cx| {
                 if matches!(event, InputEvent::Change) {
-                    if let Some(tab) = this.tabs.iter_mut().find(|t| t.input_state == input_entity)
-                    {
-                        let was_dirty = tab.is_dirty;
-                        tab.update_dirty(cx);
-                        if tab.is_dirty != was_dirty {
+                    if let Some(ref input) = this.title_input {
+                        if *input == title_entity {
+                            this.update_title_dirty(cx);
                             cx.notify();
                         }
                     }
@@ -157,127 +245,170 @@ impl FeatureEditor {
         )
         .detach();
 
-        if replace_current {
-            self.tabs[self.active_tab_idx] = tab;
-        } else {
-            self.tabs.push(tab);
-            self.active_tab_idx = self.tabs.len() - 1;
-        }
+        // Subscribe to details input changes
+        let details_entity = details_input.clone();
+        cx.subscribe_in(
+            &details_input,
+            window,
+            move |this, _state, event: &InputEvent, _window, cx| {
+                if matches!(event, InputEvent::Change) {
+                    if let Some(ref input) = this.details_input {
+                        if *input == details_entity {
+                            this.update_details_dirty(cx);
+                            cx.notify();
+                        }
+                    }
+                }
+            },
+        )
+        .detach();
+
+        self.feature_id = Some(feature_id);
+        self.title_input = Some(title_input);
+        self.details_input = Some(details_input);
+        self.original_title = title_str.into();
+        self.original_details = details_str.into();
+        self.title_dirty = false;
+        self.details_dirty = false;
+        self.is_editing = false;
+
+        // Load tasks for this feature
+        self.load_tasks(feature_id, cx);
 
         cx.notify();
     }
 
-    /// Check if a feature is already open.
-    pub fn is_feature_open(&self, feature_id: &Uuid) -> bool {
-        self.tabs.iter().any(|t| &t.feature_id == feature_id)
+    /// Load tasks for a feature's active session.
+    fn load_tasks(&mut self, feature_id: Uuid, cx: &mut Context<Self>) {
+        let client = self.client.clone();
+        let background = cx.background_executor().clone();
+
+        cx.spawn(async move |this, cx| {
+            let result = background
+                .spawn(async move {
+                    // Get sessions for the feature
+                    let sessions = client.get_feature_sessions(&feature_id)?;
+
+                    // Find active session
+                    let active_session = sessions
+                        .into_iter()
+                        .find(|s| s.status == SessionStatus::Active);
+
+                    if let Some(session) = active_session {
+                        let tasks = client.get_session_tasks(&session.id)?;
+                        Ok::<_, manifest_client::ClientError>((Some(session), tasks))
+                    } else {
+                        Ok((None, Vec::new()))
+                    }
+                })
+                .await;
+
+            if let Ok((session, tasks)) = result {
+                if let Some(this) = this.upgrade() {
+                    cx.update_entity(&this, |this: &mut FeatureEditor, cx| {
+                        this.active_session = session;
+                        this.tasks = tasks;
+                        cx.notify();
+                    });
+                }
+            }
+        })
+        .detach();
     }
 
-    /// Get the active tab, if any.
-    pub fn active_tab(&self) -> Option<&FeatureEditorTab> {
-        self.tabs.get(self.active_tab_idx)
+    /// Check if the editor has a feature loaded.
+    pub fn has_feature(&self) -> bool {
+        self.feature_id.is_some()
     }
 
-    /// Get the active tab mutably, if any.
-    pub fn active_tab_mut(&mut self) -> Option<&mut FeatureEditorTab> {
-        self.tabs.get_mut(self.active_tab_idx)
+    /// Check if content is dirty.
+    pub fn is_dirty(&self) -> bool {
+        self.title_dirty || self.details_dirty
     }
 
-    /// Check if the editor has any open tabs.
-    pub fn has_tabs(&self) -> bool {
-        !self.tabs.is_empty()
+    /// Update title dirty state.
+    fn update_title_dirty(&mut self, cx: &App) {
+        if let Some(ref input) = self.title_input {
+            let current = input.read(cx).value();
+            self.title_dirty = current != self.original_title;
+        }
     }
 
-    /// Save the current tab's content to the server.
+    /// Update details dirty state.
+    fn update_details_dirty(&mut self, cx: &App) {
+        if let Some(ref input) = self.details_input {
+            let current = input.read(cx).value();
+            self.details_dirty = current != self.original_details;
+        }
+    }
+
+    /// Save the current feature.
     pub fn save_current(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
-        // Extract data first to avoid borrow issues
-        let (feature_id, content, is_dirty) = {
-            let Some(tab) = self.active_tab() else { return };
-            (tab.feature_id, tab.content(cx), tab.is_dirty)
+        let Some(feature_id) = self.feature_id else {
+            return;
         };
 
-        if !is_dirty {
+        if !self.is_dirty() {
+            self.is_editing = false;
+            cx.notify();
             return;
         }
 
+        // Extract current values
+        let title = self
+            .title_input
+            .as_ref()
+            .map(|i| i.read(cx).value().to_string());
+        let details = self
+            .details_input
+            .as_ref()
+            .map(|i| i.read(cx).value().to_string());
+
         let client = self.client.clone();
 
-        // Mark as saved optimistically (will revert on error)
-        if let Some(tab) = self.active_tab_mut() {
-            tab.mark_saved(cx);
+        // Update originals optimistically
+        if let Some(ref t) = title {
+            self.original_title = t.clone().into();
         }
+        if let Some(ref d) = details {
+            self.original_details = d.clone().into();
+        }
+        self.title_dirty = false;
+        self.details_dirty = false;
+        self.is_editing = false;
         cx.notify();
 
         // Save in background
         cx.background_executor()
-            .spawn(async move { client.update_feature(&feature_id, Some(content)) })
+            .spawn(async move { client.update_feature_full(&feature_id, title, details) })
             .detach_and_log_err(cx);
 
         cx.emit(Event::FeatureSaved(feature_id));
     }
 
-    /// Close the active tab (with dirty check handled by caller).
-    pub fn close_active_tab(&mut self, cx: &mut Context<Self>) {
-        if self.tabs.is_empty() {
-            return;
-        }
-
-        // Check for dirty state
-        if let Some(tab) = self.active_tab() {
-            if tab.is_dirty {
-                cx.emit(Event::DirtyCloseRequested(self.active_tab_idx));
-                return;
-            }
-        }
-
-        self.force_close_tab(self.active_tab_idx, cx);
-    }
-
-    /// Close a tab by index without checking dirty state.
-    pub fn force_close_tab(&mut self, idx: usize, cx: &mut Context<Self>) {
-        if idx >= self.tabs.len() {
-            return;
-        }
-
-        self.tabs.remove(idx);
-
-        // Adjust active index
-        if self.tabs.is_empty() {
-            self.active_tab_idx = 0;
-        } else if self.active_tab_idx >= self.tabs.len() {
-            self.active_tab_idx = self.tabs.len() - 1;
-        } else if idx < self.active_tab_idx {
-            self.active_tab_idx -= 1;
-        }
-
+    /// Enter edit mode.
+    fn enter_edit_mode(&mut self, cx: &mut Context<Self>) {
+        self.is_editing = true;
         cx.notify();
     }
 
-    /// Switch to a specific tab.
-    fn switch_tab(&mut self, idx: usize, cx: &mut Context<Self>) {
-        if idx < self.tabs.len() && idx != self.active_tab_idx {
-            self.active_tab_idx = idx;
-            cx.notify();
+    /// Cancel editing and revert to original values.
+    fn cancel_edit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        // Revert inputs to original values
+        if let Some(ref title_input) = self.title_input {
+            title_input.update(cx, |state, cx| {
+                state.set_value(self.original_title.to_string(), window, cx);
+            });
         }
-    }
-
-    /// Switch to the next tab.
-    fn next_tab(&mut self, cx: &mut Context<Self>) {
-        if self.tabs.len() > 1 {
-            self.active_tab_idx = (self.active_tab_idx + 1) % self.tabs.len();
-            cx.notify();
+        if let Some(ref details_input) = self.details_input {
+            details_input.update(cx, |state, cx| {
+                state.set_value(self.original_details.to_string(), window, cx);
+            });
         }
-    }
-
-    /// Switch to the previous tab.
-    fn prev_tab(&mut self, cx: &mut Context<Self>) {
-        if self.tabs.len() > 1 {
-            self.active_tab_idx = if self.active_tab_idx == 0 {
-                self.tabs.len() - 1
-            } else {
-                self.active_tab_idx - 1
-            };
-            cx.notify();
-        }
+        self.title_dirty = false;
+        self.details_dirty = false;
+        self.is_editing = false;
+        cx.notify();
     }
 
     // --- Action handlers ---
@@ -286,16 +417,12 @@ impl FeatureEditor {
         self.save_current(window, cx);
     }
 
-    fn on_close_tab(&mut self, _: &CloseTab, _: &mut Window, cx: &mut Context<Self>) {
-        self.close_active_tab(cx);
+    fn on_edit(&mut self, _: &Edit, _window: &mut Window, cx: &mut Context<Self>) {
+        self.enter_edit_mode(cx);
     }
 
-    fn on_next_tab(&mut self, _: &NextTab, _: &mut Window, cx: &mut Context<Self>) {
-        self.next_tab(cx);
-    }
-
-    fn on_prev_tab(&mut self, _: &PrevTab, _: &mut Window, cx: &mut Context<Self>) {
-        self.prev_tab(cx);
+    fn on_cancel(&mut self, _: &Cancel, window: &mut Window, cx: &mut Context<Self>) {
+        self.cancel_edit(window, cx);
     }
 }
 
@@ -314,8 +441,6 @@ impl Render for FeatureEditor {
             self.open_feature(pending.id, pending.title, pending.details, window, cx);
         }
 
-        let has_tabs = !self.tabs.is_empty();
-
         div()
             .id("feature-editor")
             .size_full()
@@ -325,147 +450,387 @@ impl Render for FeatureEditor {
             .track_focus(&self.focus_handle)
             .key_context("FeatureEditor")
             .on_action(cx.listener(Self::on_save))
-            .on_action(cx.listener(Self::on_close_tab))
-            .on_action(cx.listener(Self::on_next_tab))
-            .on_action(cx.listener(Self::on_prev_tab))
-            // Tab bar
-            .child(self.render_tab_bar(cx))
-            // Content area
+            .on_action(cx.listener(Self::on_edit))
+            .on_action(cx.listener(Self::on_cancel))
+            // Top: Feature header (always visible)
+            .child(self.render_feature_header(cx))
+            // Bottom: Content area (tasks + details or empty state)
+            .child(self.render_content_area(cx))
+    }
+}
+
+impl FeatureEditor {
+    fn render_feature_header(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let is_editing = self.is_editing;
+        let is_dirty = self.is_dirty();
+        let has_feature = self.has_feature();
+
+        div()
+            .id("feature-header")
+            .w_full()
+            .h(px(32.0)) // Match feature panel header height
+            .px(px(12.0))
+            .bg(colors::header_background())
+            .border_b_1()
+            .border_color(colors::header_border())
+            .flex()
+            .flex_row()
+            .items_center()
+            .justify_between()
+            // Left: Title and dirty indicator
             .child(
                 div()
-                    .id("editor-content-area")
-                    .flex_1()
-                    .w_full()
-                    .overflow_hidden()
-                    .child(if has_tabs {
-                        self.render_editor_content(cx).into_any_element()
-                    } else {
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap(px(8.0))
+                    .child(
                         div()
-                            .id("editor-empty-state")
-                            .size_full()
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .child(
-                                div()
-                                    .font_family("IBM Plex Sans")
-                                    .text_color(cx.theme().muted_foreground)
-                                    .child("No features open"),
-                            )
+                            .font_family("IBM Plex Sans")
+                            .text_size(px(12.0))
+                            .font_weight(gpui::FontWeight::BOLD)
+                            .text_color(colors::header_text())
+                            .child("FEATURE"),
+                    )
+                    .when(is_dirty, |d| {
+                        d.child(
+                            div()
+                                .font_family("IBM Plex Sans")
+                                .text_size(px(11.0))
+                                .text_color(colors::dirty_indicator())
+                                .child("• Unsaved"),
+                        )
+                    }),
+            )
+            // Right: Buttons (only show when feature is loaded)
+            .when(has_feature, |d| {
+                d.child(if is_editing {
+                    // Edit mode: Cancel and Save buttons
+                    div()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap(px(6.0))
+                        .mr(px(4.0))
+                        .child(
+                            Button::new("cancel-btn")
+                                .label("Cancel")
+                                .xsmall()
+                                .rounded(ButtonRounded::Small)
+                                .with_variant(ButtonVariant::Ghost)
+                                .font_family("IBM Plex Sans")
+                                .on_click(cx.listener(|this, _, window, cx| {
+                                    this.cancel_edit(window, cx);
+                                })),
+                        )
+                        .child(
+                            Button::new("save-btn")
+                                .label("Save")
+                                .xsmall()
+                                .rounded(ButtonRounded::Small)
+                                .with_variant(ButtonVariant::Primary)
+                                .font_family("IBM Plex Sans")
+                                .on_click(cx.listener(|this, _, window, cx| {
+                                    this.save_current(window, cx);
+                                })),
+                        )
+                        .into_any_element()
+                } else {
+                    // View mode: Edit button
+                    div()
+                        .mr(px(4.0))
+                        .child(
+                            Button::new("edit-btn")
+                                .label("Edit")
+                                .xsmall()
+                                .rounded(ButtonRounded::Small)
+                                .with_variant(ButtonVariant::Ghost)
+                                .font_family("IBM Plex Sans")
+                                .on_click(cx.listener(|this, _, _window, cx| {
+                                    this.enter_edit_mode(cx);
+                                })),
+                        )
+                        .into_any_element()
+                })
+            })
+    }
+
+    fn render_content_area(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let has_feature = self.has_feature();
+
+        div()
+            .id("content-area")
+            .flex_1()
+            .w_full()
+            .flex()
+            .flex_row()
+            .overflow_hidden()
+            // Left: Feature details or empty state (3/4 width)
+            .child(if has_feature {
+                self.render_feature_details(cx).into_any_element()
+            } else {
+                self.render_empty_state(cx).into_any_element()
+            })
+            // Right: Tasks panel (1/4 width, always visible)
+            .child(self.render_tasks_panel(cx))
+    }
+
+    fn render_empty_state(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .id("editor-empty-state")
+            .w_3_4()
+            .h_full()
+            .flex()
+            .items_center()
+            .justify_center()
+            .child(
+                div()
+                    .font_family("IBM Plex Sans")
+                    .text_color(cx.theme().muted_foreground)
+                    .child("Select a feature to edit"),
+            )
+    }
+
+    fn render_tasks_panel(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .id("tasks-panel")
+            .w_1_4()
+            .min_w(px(180.0))
+            .h_full()
+            .flex()
+            .flex_col()
+            .bg(colors::panel_background())
+            .border_l_1()
+            .border_color(cx.theme().border)
+            // Header
+            .child(
+                div()
+                    .id("tasks-header")
+                    .w_full()
+                    .px(px(12.0))
+                    .py(px(10.0))
+                    .border_b_1()
+                    .border_color(cx.theme().border)
+                    .child(
+                        div()
+                            .font_family("IBM Plex Sans")
+                            .text_size(px(13.0))
+                            .font_weight(gpui::FontWeight::MEDIUM)
+                            .text_color(cx.theme().foreground)
+                            .child("Tasks"),
+                    ),
+            )
+            // Task list
+            .child(
+                div()
+                    .id("tasks-list")
+                    .flex_1()
+                    .overflow_y_scroll()
+                    .children(if self.tasks.is_empty() {
+                        vec![self.render_no_tasks(cx).into_any_element()]
+                    } else {
+                        self.tasks
+                            .iter()
+                            .enumerate()
+                            .map(|(idx, task)| self.render_task(idx, task, cx).into_any_element())
+                            .collect()
+                    }),
+            )
+    }
+
+    fn render_no_tasks(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .id("no-tasks")
+            .w_full()
+            .p(px(12.0))
+            .child(
+                div()
+                    .font_family("IBM Plex Sans")
+                    .text_size(px(12.0))
+                    .text_color(cx.theme().muted_foreground)
+                    .child(if self.active_session.is_some() {
+                        "No tasks in session"
+                    } else {
+                        "No active session"
+                    }),
+            )
+    }
+
+    fn render_task(&self, idx: usize, task: &Task, cx: &mut Context<Self>) -> impl IntoElement {
+        let status_color = match task.status {
+            TaskStatus::Pending => colors::task_pending(),
+            TaskStatus::Running => colors::task_running(),
+            TaskStatus::Completed => colors::task_completed(),
+            TaskStatus::Failed => colors::task_failed(),
+        };
+
+        let status_label = match task.status {
+            TaskStatus::Pending => "pending",
+            TaskStatus::Running => "running",
+            TaskStatus::Completed => "done",
+            TaskStatus::Failed => "failed",
+        };
+
+        div()
+            .id(format!("task-{}", idx))
+            .w_full()
+            .px(px(12.0))
+            .py(px(8.0))
+            .border_b_1()
+            .border_color(cx.theme().border)
+            .hover(|s| s.bg(cx.theme().list_hover))
+            .flex()
+            .flex_col()
+            .gap(px(4.0))
+            // Title row
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap(px(8.0))
+                    // Status indicator
+                    .child(
+                        div()
+                            .w(px(8.0))
+                            .h(px(8.0))
+                            .rounded_full()
+                            .bg(status_color),
+                    )
+                    // Title
+                    .child(
+                        div()
+                            .flex_1()
+                            .font_family("IBM Plex Sans")
+                            .text_size(px(12.0))
+                            .text_color(cx.theme().foreground)
+                            .overflow_hidden()
+                            .text_ellipsis()
+                            .child(task.title.clone()),
+                    ),
+            )
+            // Status label
+            .child(
+                div()
+                    .pl(px(16.0))
+                    .font_family("IBM Plex Sans")
+                    .text_size(px(10.0))
+                    .text_color(cx.theme().muted_foreground)
+                    .child(status_label),
+            )
+    }
+
+    fn render_feature_details(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let is_editing = self.is_editing;
+
+        div()
+            .id("feature-details")
+            .w_3_4()
+            .h_full()
+            .overflow_y_scroll()
+            .p(px(24.0))
+            .flex()
+            .flex_col()
+            .gap(px(20.0))
+            // Title section
+            .child(
+                div()
+                    .id("title-section")
+                    .flex()
+                    .flex_col()
+                    .gap(px(6.0))
+                    .child(
+                        div()
+                            .font_family("IBM Plex Sans")
+                            .text_size(px(11.0))
+                            .font_weight(gpui::FontWeight::MEDIUM)
+                            .text_color(cx.theme().muted_foreground)
+                            .child("TITLE"),
+                    )
+                    .child(if is_editing {
+                        // Edit mode - IBM Plex Mono with panel background
+                        if let Some(ref title_input) = self.title_input {
+                            div()
+                                .w_full()
+                                .bg(colors::panel_background())
+                                .rounded(px(4.0))
+                                .p(px(8.0))
+                                .font_family("IBM Plex Mono")
+                                .child(
+                                    Input::new(title_input)
+                                        .appearance(false)
+                                        .w_full(),
+                                )
+                                .into_any_element()
+                        } else {
+                            div().into_any_element()
+                        }
+                    } else {
+                        // View mode - IBM Plex Sans
+                        div()
+                            .font_family("IBM Plex Sans")
+                            .text_size(px(14.0))
+                            .text_color(cx.theme().foreground)
+                            .child(self.original_title.clone())
                             .into_any_element()
+                    }),
+            )
+            // Details section
+            .child(
+                div()
+                    .id("details-section")
+                    .flex_1()
+                    .flex()
+                    .flex_col()
+                    .gap(px(6.0))
+                    .child(
+                        div()
+                            .font_family("IBM Plex Sans")
+                            .text_size(px(11.0))
+                            .font_weight(gpui::FontWeight::MEDIUM)
+                            .text_color(cx.theme().muted_foreground)
+                            .child("DETAILS"),
+                    )
+                    .child(if is_editing {
+                        // Edit mode - IBM Plex Mono with panel background
+                        if let Some(ref details_input) = self.details_input {
+                            div()
+                                .flex_1()
+                                .w_full()
+                                .bg(colors::panel_background())
+                                .rounded(px(4.0))
+                                .p(px(8.0))
+                                .font_family("IBM Plex Mono")
+                                .child(
+                                    Input::new(details_input)
+                                        .appearance(false)
+                                        .w_full()
+                                        .h_full(),
+                                )
+                                .into_any_element()
+                        } else {
+                            div().into_any_element()
+                        }
+                    } else {
+                        // View mode - render as markdown
+                        if self.original_details.is_empty() {
+                            div()
+                                .font_family("IBM Plex Sans")
+                                .text_size(px(13.0))
+                                .text_color(cx.theme().muted_foreground)
+                                .child("No details")
+                                .into_any_element()
+                        } else {
+                            markdown(self.original_details.clone())
+                                .selectable(true)
+                                .into_any_element()
+                        }
                     }),
             )
     }
 }
 
-impl FeatureEditor {
-    fn render_tab_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let can_close = !self.tabs.is_empty();
-
-        // Build tab bar with gpui-component
-        let mut tab_bar = TabBar::new("editor-tabs")
-            .w_full()
-            .selected_index(self.active_tab_idx)
-            .on_click(cx.listener(|this, idx: &usize, _window, cx| {
-                this.switch_tab(*idx, cx);
-            }));
-
-        // Add tabs with borders
-        let border_color = cx.theme().border;
-        for (idx, tab) in self.tabs.iter().enumerate() {
-            let close_idx = idx;
-            let is_dirty = tab.is_dirty;
-            let tab_element = Tab::new()
-                .outline()
-                .label(&tab.title)
-                // Dirty indicator (yellow dot)
-                .when(is_dirty, |t| {
-                    t.prefix(
-                        div()
-                            .h_full()
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .ml(px(12.0))
-                            .w(px(24.0))
-                            .child(
-                                div()
-                                    .w(px(8.0))
-                                    .h(px(8.0))
-                                    .rounded_full()
-                                    .bg(colors::dirty_indicator()),
-                            ),
-                    )
-                })
-                // Close button
-                .when(can_close, |t| {
-                    t.suffix(
-                        div()
-                            .id(format!("close-{}", idx))
-                            .ml(px(4.0))
-                            .mr(px(6.0))
-                            .w(px(16.0))
-                            .h(px(16.0))
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .rounded(px(3.0))
-                            .font_family("IBM Plex Sans")
-                            .text_size(px(14.0))
-                            .text_color(cx.theme().muted_foreground)
-                            .hover(|s| {
-                                s.bg(cx.theme().list_hover)
-                                    .text_color(cx.theme().foreground)
-                            })
-                            .cursor_pointer()
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                if let Some(tab) = this.tabs.get(close_idx) {
-                                    if tab.is_dirty {
-                                        cx.emit(Event::DirtyCloseRequested(close_idx));
-                                    } else {
-                                        this.force_close_tab(close_idx, cx);
-                                    }
-                                }
-                            }))
-                            .child("×"),
-                    )
-                })
-                // Add border to all tabs
-                .border_1()
-                .border_color(border_color);
-            tab_bar = tab_bar.child(tab_element);
-        }
-
-        tab_bar
-    }
-
-    fn render_editor_content(&self, _cx: &mut Context<Self>) -> impl IntoElement {
-        let Some(tab) = self.active_tab() else {
-            return div().into_any_element();
-        };
-
-        // Use gpui-component Input for text editing
-        div()
-            .id("editor-content-wrapper")
-            .size_full()
-            .p(px(16.0))
-            .font_family("Bitstream Vera Sans Mono")
-            .child(
-                Input::new(&tab.input_state)
-                    .appearance(false) // No borders
-                    .w_full()
-                    .h_full(),
-            )
-            .into_any_element()
-    }
-}
-
 /// Register key bindings for the feature editor.
 pub fn register_bindings(cx: &mut App) {
-    cx.bind_keys([
-        KeyBinding::new("cmd-s", Save, Some("FeatureEditor")),
-        KeyBinding::new("cmd-w", CloseTab, Some("FeatureEditor")),
-        KeyBinding::new("ctrl-tab", NextTab, Some("FeatureEditor")),
-        KeyBinding::new("ctrl-shift-tab", PrevTab, Some("FeatureEditor")),
-    ]);
+    cx.bind_keys([KeyBinding::new("cmd-s", Save, Some("FeatureEditor"))]);
 }
